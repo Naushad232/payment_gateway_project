@@ -1,4 +1,4 @@
-package com.suvikapay.wallet.repo;
+package com.suvikapay.wallet.repository;
 
 import com.suvikapay.wallet.entity.WalletLedger;
 import com.suvikapay.wallet.entity.WalletLedgerId;

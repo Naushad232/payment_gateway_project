@@ -1,4 +1,4 @@
-package com.suvikapay.wallet.repo;
+package com.suvikapay.wallet.repository;
 
 import com.suvikapay.wallet.entity.PayinTransaction;
 import com.suvikapay.wallet.entity.PayinTransactionId;
