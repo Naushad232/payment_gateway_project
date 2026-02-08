@@ -1,0 +1,2 @@
+-- Paste your ONE-SHOT INSTALLER DDL here (the full script you shared).
+-- Tip (DEV only): set spring.sql.init.mode=always in application.yml to auto-run this file.
