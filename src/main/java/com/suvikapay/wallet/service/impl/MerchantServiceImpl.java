@@ -5,6 +5,7 @@ import com.suvikapay.wallet.dto.response.MerchantResponse;
 import com.suvikapay.wallet.entity.Merchant;
 import com.suvikapay.wallet.entity.MerchantChargeSlab;
 import com.suvikapay.wallet.exception.ResourceAlreadyExistsException;
+import com.suvikapay.wallet.exception.ResourceNotFoundException;
 import com.suvikapay.wallet.repository.MerchantChargeSlabRepository;
 import com.suvikapay.wallet.repository.MerchantRepository;
 import com.suvikapay.wallet.service.MerchantService;
@@ -93,4 +94,89 @@ public class MerchantServiceImpl implements MerchantService {
                         .toList())
                 .build();
     }
+
+
+    @Override
+    @Transactional
+    public List<MerchantResponse> getAllMerchants() {
+        return merchantRepository.findAll().stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public MerchantResponse getMerchantById(Long merchantId) {
+        Merchant merchant = merchantRepository.findById(merchantId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Merchant", "id", merchantId));
+
+        return mapToResponse(merchant);
+    }
+
+    @Override
+    @Transactional
+    public MerchantResponse updateMerchant(Long merchantId, CreateMerchantRequest request) {
+
+        Merchant merchant = merchantRepository.findById(merchantId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Merchant", "id", merchantId));
+
+        merchant.setMerchantName(request.getMerchantName());
+        Merchant savedMerchant = merchantRepository.save(merchant);
+
+        // delete old slabs
+        merchantChargeSlabRepository.deleteByMerchant(savedMerchant);
+
+        // reuse SAME slab logic as create
+        final String serviceType = (request.getServiceType() == null || request.getServiceType().isBlank())
+                ? "WALLET"
+                : request.getServiceType();
+
+        List<MerchantChargeSlab> slabs = request.getCharges().stream().map(c -> {
+
+            if (c.getStartAmt().compareTo(c.getEndAmt()) > 0) {
+                throw new IllegalArgumentException("startAmt must be <= endAmt");
+            }
+
+            return MerchantChargeSlab.builder()
+                    .merchant(savedMerchant)
+                    .serviceType(serviceType)
+                    .mode(c.getMode().trim().toUpperCase())
+                    .startAmount(c.getStartAmt())
+                    .endAmount(c.getEndAmt())
+                    .charge(c.getCharge())
+                    .chargeType(c.getType().trim().toUpperCase())
+                    .gstPercent(c.getGstPercent())
+                    .build();
+        }).toList();
+
+        merchantChargeSlabRepository.saveAll(slabs);
+
+        return mapToResponse(savedMerchant);
+    }
+
+    private MerchantResponse mapToResponse(Merchant merchant) {
+        List<MerchantChargeSlab> slabs =
+                merchantChargeSlabRepository.findByMerchant(merchant);
+
+        return MerchantResponse.builder()
+                .merchantId(merchant.getMerchantId())
+                .merchantName(merchant.getMerchantName())
+                .charges(slabs.stream().map(s ->
+                        MerchantResponse.ChargeSlab.builder()
+                                .slabId(s.getSlabId())
+                                .serviceType(s.getServiceType())
+                                .mode(s.getMode())
+                                .startAmount(s.getStartAmount())
+                                .endAmount(s.getEndAmount())
+                                .charge(s.getCharge())
+                                .chargeType(s.getChargeType())
+                                .gstPercent(s.getGstPercent())
+                                .build()
+                ).toList())
+                .build();
+    }
+
+
 }

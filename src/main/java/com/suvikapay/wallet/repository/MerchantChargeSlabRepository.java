@@ -1,5 +1,6 @@
 package com.suvikapay.wallet.repository;
 
+import com.suvikapay.wallet.entity.Merchant;
 import com.suvikapay.wallet.entity.MerchantChargeSlab;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -15,4 +16,9 @@ public interface MerchantChargeSlabRepository extends JpaRepository<MerchantChar
     List<MerchantChargeSlab> findByMerchantMerchantIdAndServiceTypeAndModeAndStartAmountLessThanEqualAndEndAmountGreaterThanEqual(
             Long merchantId, String serviceType, String mode, BigDecimal amount1, BigDecimal amount2
     );
+
+    List<MerchantChargeSlab> findByMerchant(Merchant merchant);
+
+    void deleteByMerchant(Merchant merchant);
+
 }
