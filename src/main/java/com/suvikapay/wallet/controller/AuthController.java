@@ -1,10 +1,7 @@
 // src/main/java/com/suvikapay/wallet/controller/AuthController.java
 package com.suvikapay.wallet.controller;
 
-import com.suvikapay.wallet.dto.request.AuthRequest;
-import com.suvikapay.wallet.dto.request.CreateUserRequest;
-import com.suvikapay.wallet.dto.request.RefreshTokenRequest;
-import com.suvikapay.wallet.dto.request.ResetPasswordRequest;
+import com.suvikapay.wallet.dto.request.*;
 import com.suvikapay.wallet.dto.response.ApiResponse;
 import com.suvikapay.wallet.dto.response.AuthResponse;
 import com.suvikapay.wallet.dto.response.UserResponse;
@@ -105,4 +102,20 @@ public class AuthController {
         // This will be implemented in UserService
         return ResponseEntity.ok(ApiResponse.success("User details retrieved", null));
     }
+
+    @Operation(
+            summary = "Admin self registration",
+            description = "Register a new ADMIN user with minimal required details"
+    )
+    @PostMapping("/register-admin")
+    public ResponseEntity<ApiResponse<UserResponse>> registerAdmin(
+            @Valid @RequestBody CreateAdminRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        UserResponse response = authService.registerAdmin(request, httpRequest);
+        return ResponseEntity.ok(
+                ApiResponse.success("Admin registered successfully", response)
+        );
+    }
+
 }

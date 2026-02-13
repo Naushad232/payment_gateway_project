@@ -2,6 +2,7 @@
 package com.suvikapay.wallet.service.impl;
 
 import com.suvikapay.wallet.dto.request.AuthRequest;
+import com.suvikapay.wallet.dto.request.CreateAdminRequest;
 import com.suvikapay.wallet.dto.request.CreateUserRequest;
 import com.suvikapay.wallet.dto.request.RefreshTokenRequest;
 import com.suvikapay.wallet.dto.response.AuthResponse;
@@ -180,6 +181,48 @@ public class AuthServiceImpl implements AuthService {
         SecurityContextHolder.clearContext();
         log.info("User logged out from IP: {}", IPUtils.getClientIP(request));
     }
+
+    @Override
+    @Transactional
+    public UserResponse registerAdmin(CreateAdminRequest request, HttpServletRequest httpRequest) {
+
+        if (userRepository.existsByEmailAddress(request.getEmail())) {
+            throw new ResourceAlreadyExistsException("User", "email", request.getEmail());
+        }
+
+        if (userRepository.existsByUserName(request.getUserName())) {
+            throw new ResourceAlreadyExistsException("User", "username", request.getUserName());
+        }
+
+        AppUser admin = AppUser.builder()
+                .emailAddress(request.getEmail())
+                .userName(request.getUserName())
+                .name(request.getName())
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .role("ADMIN")
+                .userType(request.getUserType())
+                .isActive(true)
+                .createdAt(OffsetDateTime.now())
+                .updatedAt(OffsetDateTime.now())
+                .build();
+
+        AppUser savedAdmin = userRepository.save(admin);
+
+        // Optional: create wallet (safe to keep consistency)
+        Wallet wallet = Wallet.builder()
+                .user(savedAdmin)
+                .currentBalance(java.math.BigDecimal.ZERO)
+                .updatedAt(OffsetDateTime.now())
+                .build();
+        walletRepository.save(wallet);
+
+        log.info("ADMIN {} registered from IP {}",
+                savedAdmin.getEmailAddress(),
+                IPUtils.getClientIP(httpRequest));
+
+        return mapToUserResponse(savedAdmin);
+    }
+
 
     @Override
     @Transactional
