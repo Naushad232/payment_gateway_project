@@ -4,6 +4,9 @@ import com.suvikapay.wallet.dto.request.CreateMerchantRequest;
 import com.suvikapay.wallet.dto.response.ApiResponse;
 import com.suvikapay.wallet.dto.response.MerchantResponse;
 import com.suvikapay.wallet.service.MerchantService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -42,11 +45,11 @@ public class MerchantController {
         );
     }
 
-    // FIND BY ID
     @GetMapping("/{merchantId}")
+    @Operation(summary = "Get merchant by ID")
     public ResponseEntity<ApiResponse<MerchantResponse>> getById(
-            @PathVariable Long merchantId) {
-
+            @PathVariable("merchantId") Long merchantId
+    ) {
         return ResponseEntity.ok(
                 ApiResponse.success(
                         "Merchant fetched successfully",
@@ -55,12 +58,14 @@ public class MerchantController {
         );
     }
 
-    // UPDATE
-    @PutMapping("/{merchantId}")
-    public ResponseEntity<ApiResponse<MerchantResponse>> update(
-            @PathVariable Long merchantId,
-            @Valid @RequestBody CreateMerchantRequest request) {
 
+
+    @PutMapping("/{merchantId}")
+    @Operation(summary = "Update merchant")
+    public ResponseEntity<ApiResponse<MerchantResponse>> update(
+            @PathVariable("merchantId") Long merchantId,
+            @Valid @RequestBody CreateMerchantRequest request
+    ) {
         return ResponseEntity.ok(
                 ApiResponse.success(
                         "Merchant updated successfully",
@@ -68,4 +73,6 @@ public class MerchantController {
                 )
         );
     }
+
+
 }
