@@ -58,7 +58,7 @@ public class UserController {
     @GetMapping("/{userId}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<UserResponse>> getUserById(
-            @PathVariable Integer userId) {
+            @PathVariable("userId") Integer userId) {
         UserResponse userResponse = userService.getUserById(userId);
         return ResponseEntity.ok(ApiResponse.success("User found", userResponse));
     }
@@ -97,7 +97,7 @@ public class UserController {
     @PutMapping("/{userId}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
-            @PathVariable Integer userId,
+            @PathVariable("userId") Integer userId,
             @Valid @RequestBody CreateUserRequest request) {
         UserResponse userResponse = userService.updateUser(userId, request);
         return ResponseEntity.ok(ApiResponse.success("User updated successfully", userResponse));
@@ -113,7 +113,7 @@ public class UserController {
     @DeleteMapping("/{userId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'AGENT')")
     public ResponseEntity<ApiResponse<Void>> deleteUser(
-            @PathVariable Integer userId) {
+            @PathVariable("userId") Integer userId) {
         userService.deleteUser(userId);
         return ResponseEntity.ok(ApiResponse.success("User deleted successfully", null));
     }
@@ -129,7 +129,7 @@ public class UserController {
     @PatchMapping("/{userId}/status")
     @PreAuthorize("hasAnyRole('ADMIN', 'AGENT')")
     public ResponseEntity<ApiResponse<UserResponse>> updateUserStatus(
-            @PathVariable Integer userId,
+            @PathVariable("userId") Integer userId,
             @RequestParam Boolean isActive) {
         UserResponse userResponse = userService.updateUserStatus(userId, isActive);
 
