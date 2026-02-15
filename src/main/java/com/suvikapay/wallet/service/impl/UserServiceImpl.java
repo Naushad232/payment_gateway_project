@@ -156,36 +156,39 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<UserResponse> getAllUsers(Pageable pageable) {
+    public List<UserResponse> getAllUsers() {
         try {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             String currentUserRole = getCurrentUserRole();
 
-            Page<AppUser> users;
+            List<AppUser> users;
 
             if (currentUserRole.equals(AppConstants.ROLE_ADMIN)) {
-                // Admin can see all users
-                users = userRepository.findAll(pageable);
-            } else if (currentUserRole.equals(AppConstants.ROLE_AGENT)) {
-                // Agent can only see users they created or users with USER role
-                users = userRepository.findByRole(AppConstants.ROLE_USER, pageable);
-            } else {
-                // Regular users can only see their own profile
-                String currentUserEmail = authentication.getName();
-                AppUser currentUser = userRepository.findByEmailAddress(currentUserEmail)
-                        .orElseThrow(() -> new ResourceNotFoundException("User", "email", currentUserEmail));
+                // Admin sees all users
+                users = userRepository.findAll();
 
-                List<AppUser> singleUserList = List.of(currentUser);
-                users = new PageImpl<>(singleUserList, pageable, 1);
+            } else if (currentUserRole.equals(AppConstants.ROLE_AGENT)) {
+                // Agent sees only USER role
+                users = userRepository.findByRole(AppConstants.ROLE_USER);
+
+            } else {
+                // Regular user sees only self
+                String email = authentication.getName();
+                AppUser currentUser = userRepository.findByEmailAddress(email)
+                        .orElseThrow(() -> new ResourceNotFoundException("User", "email", email));
+                users = List.of(currentUser);
             }
 
-            return users.map(this::mapToUserResponse);
+            return users.stream()
+                    .map(this::mapToUserResponse)
+                    .collect(Collectors.toList());
 
         } catch (Exception e) {
-            log.error("Error fetching all users", e);
+            log.error("Error fetching users", e);
             throw new ServiceException("Failed to fetch users: " + e.getMessage());
         }
     }
+
 
     @Override
     @Transactional

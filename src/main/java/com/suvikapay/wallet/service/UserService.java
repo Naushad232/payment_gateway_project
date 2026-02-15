@@ -6,12 +6,14 @@ import com.suvikapay.wallet.dto.response.UserResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
+
 public interface UserService {
 
     UserResponse createUser(CreateUserRequest request);
     UserResponse getUserById(Integer userId);
     UserResponse getUserByEmail(String email);
-    Page<UserResponse> getAllUsers(Pageable pageable);
+    List<UserResponse> getAllUsers();
     UserResponse updateUser(Integer userId, CreateUserRequest request);
     void deleteUser(Integer userId);
     UserResponse updateUserStatus(Integer userId, Boolean isActive);

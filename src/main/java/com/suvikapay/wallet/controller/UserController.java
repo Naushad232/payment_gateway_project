@@ -21,6 +21,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/users")
 @RequiredArgsConstructor
@@ -76,29 +78,13 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success("User found", userResponse));
     }
 
-    @Operation(summary = "Get all users", description = "Get paginated list of all users")
-    @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Users retrieved successfully"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Forbidden")
-    })
     @GetMapping
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<Page<UserResponse>>> getAllUsers(
-            @Valid @ModelAttribute PaginationRequest paginationRequest) {
-
-        Sort sort = Sort.by(paginationRequest.getSortDirection().equalsIgnoreCase("DESC") ?
-                Sort.Direction.DESC : Sort.Direction.ASC, paginationRequest.getSortBy());
-
-        Pageable pageable = PageRequest.of(
-                paginationRequest.getPage(),
-                paginationRequest.getSize(),
-                sort
-        );
-
-        Page<UserResponse> users = userService.getAllUsers(pageable);
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
+        List<UserResponse> users = userService.getAllUsers();
         return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully", users));
     }
+
 
     @Operation(summary = "Update user", description = "Update user details")
     @ApiResponses(value = {
