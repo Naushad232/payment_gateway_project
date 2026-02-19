@@ -10,6 +10,5 @@ public interface UserChargeSlabRepository extends JpaRepository<UserChargeSlab, 
     List<UserChargeSlab> findByUserUserId(Integer userId);
 
     List<UserChargeSlab> findByUserUserIdAndStartAmountLessThanEqualAndEndAmountGreaterThanEqual(
-            Integer userId, BigDecimal amount1, BigDecimal amount2
-    );
+            Integer userId, BigDecimal amount1, BigDecimal amount2);
 }

@@ -83,6 +83,9 @@ public class PayinTransaction {
     @Column(name = "t_id")
     private String tId;
 
+    @Column(name = "api")
+    private String api;
+
     @JdbcType(PostgreSQLInetJdbcType.class)
     @Column(name = "ip_address")
     private InetAddress ipAddress;

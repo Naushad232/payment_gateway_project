@@ -33,16 +33,19 @@ public class IPUtils {
             return "0.0.0.0";
         }
 
-        // Check headers first
         for (String header : IP_HEADERS) {
             String ip = request.getHeader(header);
-            if (ip != null && ip.length() != 0 && !"unknown".equalsIgnoreCase(ip)) {
+            if (ip != null && !ip.isEmpty() && !"unknown".equalsIgnoreCase(ip)) {
                 return getFirstIp(ip);
             }
         }
 
-        // Fallback to remote address
-        return request.getRemoteAddr();
+        String remoteAddr = request.getRemoteAddr();
+        if (remoteAddr != null && !remoteAddr.isEmpty() && !"unknown".equalsIgnoreCase(remoteAddr)) {
+            return remoteAddr;
+        }
+
+        return "0.0.0.0";
     }
 
     private static String getFirstIp(String ip) {
@@ -53,27 +56,17 @@ public class IPUtils {
     }
 
     public static boolean isValidIP(String ip) {
-        try {
-            if (ip == null || ip.isEmpty()) {
-                return false;
-            }
-
-            String[] parts = ip.split("\\.");
-            if (parts.length != 4) {
-                return false;
-            }
-
-            for (String part : parts) {
-                int value = Integer.parseInt(part);
-                if (value < 0 || value > 255) {
-                    return false;
-                }
-            }
-
-            return !ip.endsWith(".");
-        } catch (NumberFormatException e) {
+        if (ip == null || ip.isEmpty()) {
             return false;
         }
+
+        // Remove IPv6 prefix if present
+        if (ip.startsWith("::ffff:")) {
+            ip = ip.substring(7);
+        }
+
+        String ipv4Regex = "^(25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)){3}$";
+        return ip.matches(ipv4Regex);
     }
 
     public static InetAddress parseInetAddress(String ip) {

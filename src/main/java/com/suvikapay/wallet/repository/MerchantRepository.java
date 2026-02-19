@@ -8,4 +8,6 @@ import java.util.Optional;
 public interface MerchantRepository extends JpaRepository<Merchant, Long> {
     Optional<Merchant> findByMerchantName(String merchantName);
     boolean existsByMerchantName(String merchantName);
+
+
 }

@@ -130,12 +130,14 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN', 'AGENT')")
     public ResponseEntity<ApiResponse<UserResponse>> updateUserStatus(
             @PathVariable("userId") Integer userId,
-            @RequestParam Boolean isActive) {
+            @RequestParam("isActive") Boolean isActive) {
+
         UserResponse userResponse = userService.updateUserStatus(userId, isActive);
 
         String message = isActive ? "User activated successfully" : "User deactivated successfully";
         return ResponseEntity.ok(ApiResponse.success(message, userResponse));
     }
+
 
     @Operation(summary = "Get current user", description = "Get details of currently authenticated user")
     @ApiResponses(value = {

@@ -7,7 +7,6 @@ import java.time.OffsetDateTime;
 
 @Entity
 @Table(name = "api_logs")
-@IdClass(ApiLogId.class)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -16,17 +15,15 @@ import java.time.OffsetDateTime;
 public class ApiLog {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "log_id", nullable = false, updatable = false)
+    private Long logId;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
-    @Id
     @Column(name = "user_id", nullable = false)
     private Integer userId;
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "log_id", nullable = false)
-    private Long logId;
 
     @Column(name = "txn_type", nullable = false)
     private String txnType;
@@ -60,3 +57,4 @@ public class ApiLog {
         updatedAt = OffsetDateTime.now();
     }
 }
+
