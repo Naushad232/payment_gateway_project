@@ -33,6 +33,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.InetAddress;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -69,6 +70,22 @@ public class PayinServiceImpl implements PayinService {
     private static final String DIGI_PAYIN_URL = "https://walletupi.paypointz.com/upi/getqrcodestring";
     private static final String DIGI_QR_URL = "https://walletupi.paypointz.com/upi/generatedynamicqr";
     private static final String ENCRYPTION_SERVICE_URL = "https://suvikapay.com/encryption.php";
+
+    @Value("${idfc.auth.url:https://gateway.suvikapay.com/auth/token}")
+    private String idfcAuthUrl;
+
+    @Value("${idfc.generate.upi.url:https://gateway.suvikapay.com/api/v6/generateUpi}")
+    private String idfcGenerateUpiUrl;
+
+    @Value("${idfc.auth.username:}")
+    private String idfcAuthUsername;
+
+    @Value("${idfc.auth.password:}")
+    private String idfcAuthPassword;
+
+    private String cachedIdfcToken;
+    private OffsetDateTime cachedIdfcTokenExpiry;
+    private final Object idfcTokenLock = new Object();
 
     @Override
     @Transactional
@@ -231,299 +248,7 @@ public class PayinServiceImpl implements PayinService {
         }
     }
 
-//    @Override
-//    public PayinStatusResponseDto checkPayinStatus(PayinStatusRequestDto request, Integer userId) {
-//        try {
-//            AppUser user = userService.getUserById(userId);
-//
-//            if ("USER".equals(user.getRole()) || "ADMIN".equals(user.getRole())) {
-//                String referenceNum = request.getReferenceNumber();
-//
-//                Optional<PayinTransaction> payinTxn = payinTransactionRepository.findByOrderId(referenceNum);
-//
-//                if (payinTxn.isPresent()) {
-//                    PayinTransaction transaction = payinTxn.get();
-//
-//                    return PayinStatusResponseDto.builder()
-//                            .status(true)
-//                            .error(false)
-//                            .message("Transaction found")
-//                            .data(PayinStatusDataDto.builder()
-//                                    .status(transaction.getStatus())
-//                                    .payinRef(referenceNum)
-//                                    .bankRef(transaction.getUtr() != null ? transaction.getUtr() : "")
-//                                    .amount(transaction.getAmount())
-//                                    .build())
-//                            .build();
-//                } else {
-//                    return PayinStatusResponseDto.builder()
-//                            .status(false)
-//                            .error(true)
-//                            .message("Transaction not found")
-//                            .data(PayinStatusDataDto.builder()
-//                                    .payinRef(referenceNum)
-//                                    .bankRef("")
-//                                    .build())
-//                            .build();
-//                }
-//            } else {
-//                return PayinStatusResponseDto.builder()
-//                        .status(false)
-//                        .error(true)
-//                        .message("Invalid credentials")
-//                        .build();
-//            }
-//        } catch (Exception e) {
-//            log.error("Error checking payin status", e);
-//            throw new ServiceException("Failed to check payin status: " + e.getMessage());
-//        }
-//    }
 
-//    @Override
-//    public PayinCallbackDto processPayinCallback(Map<String, Object> payload) {
-//        // Generic method to process callback - will be implemented based on requirements
-//        PayinCallbackDto callbackDto = new PayinCallbackDto();
-//        // Mapping logic based on payload structure
-//        return callbackDto;
-//    }
-
-//    @Override
-//    @Transactional
-//    public Map<String, Object> bankWebhookMaster(PayinCallbackDto callbackDto) {
-//        try {
-//            log.info("Bank webhook master processing: {}", callbackDto);
-//
-//            // Find transaction
-//            Optional<PayinTransaction> payinTxnOpt = payinTransactionRepository.findByOrderId(callbackDto.getOrderId());
-//
-//            if (payinTxnOpt.isEmpty()) {
-//                // Log transaction not found
-//                saveApiLog(null, "", callbackDto.toString(), "CALLBACK-PAYIN",
-//                        callbackDto.getBank(), "Transaction not found");
-//
-//                return Map.of("status", false, "error", true, "message", "Transaction not found");
-//            }
-//
-//            PayinTransaction payinTxn = payinTxnOpt.get();
-//
-//            // Save to api logs
-//            saveApiLog(payinTxn.getTxnId(), "", callbackDto.toString(),
-//                    "CALLBACK-PAYIN-BANK-WEBHOOK", callbackDto.getBank(), null);
-//
-//            // Process only successful transactions
-//            if (callbackDto.getStatus()) {
-//                AppUser user = userService.getUserById(payinTxn.getUserId());
-//
-//                // Get merchant charges
-//                MerchantChargeDto merchantCharge = getMerchantCharges(
-//                        user.getPayingMerchant().getMerchantName(),
-//                        callbackDto.getAmount(),
-//                        "payin");
-//
-//                // Get user charges
-//                UserChargeDto userCharge = getUserCharges(
-//                        user.getUserId(),
-//                        callbackDto.getAmount(),
-//                        merchantCharge.getMerchantTotalCharge(),
-//                        "payin");
-//
-//                // Decrypt wallet balance
-//                BigDecimal openBal = encryptionUtil.decryptBigDecimal(user.getWallet());
-//                BigDecimal closeBal = openBal.add(callbackDto.getAmount());
-//                BigDecimal settlement = user.getPayoutBalance() != null ? user.getPayoutBalance() : BigDecimal.ZERO;
-//                BigDecimal totalAddedAmount = callbackDto.getAmount()
-//                        .subtract(userCharge.getTotalCharge())
-//                        .subtract(userCharge.getTotalGst());
-//
-//                // Prepare charge data
-//                Map<String, Object> chargeData = new HashMap<>();
-//                chargeData.put("merchantCharge", merchantCharge.getMerchantTotalCharge());
-//                chargeData.put("merchantGst", merchantCharge.getMerchantTotalGst());
-//                chargeData.put("adminCharge", userCharge.getAdminTotalcharge());
-//                chargeData.put("admintax", userCharge.getAdminTax());
-//                chargeData.put("agentCharge", userCharge.getAgentTotalcharge());
-//                chargeData.put("agenttax", userCharge.getAgentTax());
-//                chargeData.put("charge", userCharge.getTotalCharge());
-//                chargeData.put("gst", userCharge.getTotalGst());
-//                chargeData.put("totalAmount", totalAddedAmount);
-//                chargeData.put("payerAmount", callbackDto.getAmount());
-//                chargeData.put("settlement", settlement);
-//                chargeData.put("openBalance", openBal);
-//                chargeData.put("closeBalance", closeBal);
-//                chargeData.put("userId", user.getUserId());
-//                chargeData.put("userName", user.getName());
-//                chargeData.put("txnId", payinTxn.getTxnId());
-//                chargeData.put("orderId", callbackDto.getOrderId());
-//
-//                // Save transaction to DB
-//                saveTransactionToDB(user, callbackDto, chargeData);
-//
-//                // Send callback to client if URL exists
-//                if (user.getPayingApiStatus() != null && !user.getPayingApiStatus().isEmpty()) {
-//                    sendClientsCallbackUrlWebhook(user, callbackDto);
-//                } else {
-//                    saveApiLog(callbackDto.getOrderId(), callbackDto.toString(), "",
-//                            "CALLBACK-PAYIN-CLIENT-NOTFOUND", callbackDto.getBank(), null);
-//                }
-//            } else {
-//                saveApiLog(payinTxn.getTxnId(), "", callbackDto.toString(),
-//                        "CALLBACK-PAYIN-FAILED", callbackDto.getBank() + "-PAYIN-CALLBACK", null);
-//            }
-//
-//            return Map.of("status", true, "error", false, "message", "Callback received");
-//
-//        } catch (Exception e) {
-//            log.error("Error in bank webhook master", e);
-//            return Map.of("status", false, "error", true, "message", e.getMessage());
-//        }
-//    }
-
-//    @Override
-//    public Object checkClientPayinCallback(Map<String, Object> payload) {
-//        try {
-//            // Save to API logs
-//            saveApiLog("", "", objectMapper.writeValueAsString(payload),
-//                    "CALLBACK-PAYIN-CLIENT-RECEIVED", "HAODA", null);
-//
-//            return Map.of("status", true, "error", false, "message", "callback received");
-//        } catch (Exception e) {
-//            log.error("Error checking client callback", e);
-//            return Map.of("status", false, "error", true, "message", e.getMessage());
-//        }
-//    }
-
-//    @Override
-//    @Transactional
-//    public void updateChargeback(String orderId, String reason) {
-//        try {
-//            Optional<PayinTransaction> payinTxnOpt = payinTransactionRepository.findByOrderId(orderId);
-//
-//            if (payinTxnOpt.isEmpty()) {
-//                throw new ResourceNotFoundException("Transaction not found with orderId: " + orderId);
-//            }
-//
-//            PayinTransaction transaction = payinTxnOpt.get();
-//            transaction.setIsChargeBack(true);
-//            transaction.setChargeBackRemark(reason);
-//            transaction.setChargeBackDate(OffsetDateTime.now());
-//
-//            payinTransactionRepository.save(transaction);
-//
-//        } catch (Exception e) {
-//            log.error("Error updating chargeback", e);
-//            throw new ServiceException("Failed to update chargeback: " + e.getMessage());
-//        }
-//    }
-
-//    @Override
-//    public Map<String, Object> findChargebacksPaginated(String userId, String type,
-//                                                        OffsetDateTime startDate, OffsetDateTime endDate,
-//                                                        Integer start, Integer length) {
-//        try {
-//            // Using MongoDB repository for this example
-//            // In a real implementation, you'd use MongoRepository or custom queries
-//            Pageable pageable = PageRequest.of(start / length, length, Sort.by("chargeBackDate").descending());
-//
-//            // This is simplified - in real implementation you'd build criteria
-//            List<PayinTransaction> transactions = payinTransactionRepository.findAll();
-//
-//            // Filter for chargebacks only
-//            List<PayinTransaction> chargebacks = transactions.stream()
-//                    .filter(PayinTransaction::getIsChargeBack)
-//                    .collect(Collectors.toList());
-//
-//            long total = chargebacks.size();
-//
-//            // Paginate
-//            int fromIndex = start;
-//            int toIndex = Math.min(start + length, chargebacks.size());
-//            List<PayinTransaction> paginatedList = fromIndex <= toIndex ?
-//                    chargebacks.subList(fromIndex, toIndex) : new ArrayList<>();
-//
-//            return Map.of(
-//                    "data", paginatedList,
-//                    "total", total,
-//                    "message", "Chargebacks retrieved successfully",
-//                    "status", 200
-//            );
-//
-//        } catch (Exception e) {
-//            log.error("Error finding chargebacks", e);
-//            return Map.of(
-//                    "data", new ArrayList<>(),
-//                    "total", 0,
-//                    "message", "Error retrieving chargebacks",
-//                    "status", 500
-//            );
-//        }
-//    }
-
-//    @Override
-//    public Map<String, Object> getTotalPayinAfter(Integer userId, String lastSettlementDate, Boolean total) {
-//        try {
-//            OffsetDateTime now = OffsetDateTime.now();
-//            OffsetDateTime lastSettlement = lastSettlementDate != null ?
-//                    OffsetDateTime.parse(lastSettlementDate) : null;
-//
-//            List<PayinTransaction> transactions;
-//
-//            if (Boolean.TRUE.equals(total)) {
-//                transactions = payinTransactionRepository.findByUserIdAndStatus(userId, "SUCCESS");
-//            } else if (lastSettlement != null) {
-//                transactions = payinTransactionRepository
-//                        .findByUserIdAndStatusAndCreatedAtBetween(userId, "SUCCESS", lastSettlement, now);
-//            } else {
-//                transactions = payinTransactionRepository.findByUserIdAndStatus(userId, "SUCCESS");
-//            }
-//
-//            BigDecimal totalAmount = transactions.stream()
-//                    .map(t -> t.getTotalAmount() != null ? t.getTotalAmount() : BigDecimal.ZERO)
-//                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-//
-//            return Map.of(
-//                    "totalAmount", totalAmount,
-//                    "message", "Total payin amount retrieved successfully",
-//                    "status", 200
-//            );
-//
-//        } catch (Exception e) {
-//            log.error("Error retrieving total payin", e);
-//            return Map.of(
-//                    "totalAmount", BigDecimal.ZERO,
-//                    "message", "Error retrieving total payin amount",
-//                    "status", 500
-//            );
-//        }
-//    }
-
-//    @Override
-//    public Map<String, Object> saveIdfcResponse(Map<String, Object> payload) {
-//        try {
-//            saveApiLog("", "", objectMapper.writeValueAsString(payload),
-//                    "CALLBACK-PAYIN-SAVE-IDFC", "IDFC", null);
-//
-//            return Map.of("status", true, "error", false, "message", "callback received saved");
-//        } catch (Exception e) {
-//            log.error("Error saving IDFC response", e);
-//            return Map.of("status", false, "error", true, "message", e.getMessage());
-//        }
-//    }
-
-//    @Override
-//    public Map<String, Object> decryptFinoCallback(Map<String, Object> encryptedData) {
-//        try {
-//            String encrypted = (String) encryptedData.get("encdata");
-//            String key = "4faa506feadea9bd7bc7125df0bdee26";
-//            String iv = "c13453b649bc8ef3";
-//
-//            String decrypted = encryptionUtil.decryptFinoText(encrypted, key, iv);
-//            return objectMapper.readValue(decrypted, Map.class);
-//
-//        } catch (Exception e) {
-//            log.error("Error decrypting Fino callback", e);
-//            throw new ServiceException("Failed to decrypt Fino callback: " + e.getMessage());
-//        }
-//    }
 
     // Merchant-specific implementations
 
@@ -742,45 +467,144 @@ public class PayinServiceImpl implements PayinService {
         }
     }
 
+//    private PayinResponseDto idfcPayin(AppUser user, String txnId, CreatePaymentLinkDto request) {
+//        try {
+//            String tId = generateRandomStringIDFC();
+//
+//            // Create UPI string
+//            String upiLink = String.format(
+//                    "upi://pay?ver=01&mode=01&pa=suvika@idfcbank&pn=Suvika&mtid=TIDSUVIKA&mid=MIDSUVIKA&cu=INR&mc=7210&tr=%s&tn=EMIPayment&am=%s",
+//                    request.getOrderId(), request.getOrderAmount());
+//
+//            saveApiLog(user.getUserId(),txnId, upiLink, upiLink, "GENERATEUPI", "IDFC-PAYIN", null);
+//
+//            // Save transaction
+//            PayinTransaction transaction = PayinTransaction.builder()
+//                    .userId(user.getUserId())
+//                    .userName(user.getName())
+//                    .txnId(txnId)
+//                    .tId(tId)
+//                    .orderId(request.getOrderId())
+//                    .amount(request.getOrderAmount())
+//                    .status("PENDING")
+//                    .api("IDFC")
+//                    .ipAddress(IPUtils.parseInetAddress(IPUtils.getClientIP(this.request)))
+//                    .createdAt(OffsetDateTime.now())
+//                    .updatedAt(OffsetDateTime.now())
+//                    .build();
+//
+//            payinTransactionRepository.save(transaction);
+//
+//            return PayinResponseDto.builder()
+//                    .status(true)
+//                    .error(false)
+//                    .message("SUCCESS")
+//                    .responseCode(200)
+//                    .data(PayinDataDto.builder()
+//                            .paymentLink(upiLink)
+//                            .paymentProcessUrl("")
+//                            .referenceId(request.getOrderId())
+//                            .transactionId(txnId)
+//                            .status("SUCCESS")
+//                            .build())
+//                    .build();
+//
+//        } catch (Exception e) {
+//            log.error("Error in IDFC payin", e);
+//            return PayinResponseDto.builder()
+//                    .status(false)
+//                    .error(true)
+//                    .message(e.getMessage())
+//                    .responseCode(503)
+//                    .build();
+//        }
+//    }
     private PayinResponseDto idfcPayin(AppUser user, String txnId, CreatePaymentLinkDto request) {
         try {
-            String tId = generateRandomStringIDFC();
+            Merchant payingMerchant = user.getPayingMerchant();
+            if (payingMerchant == null) {
+                return PayinResponseDto.builder()
+                        .status(false)
+                        .error(true)
+                        .message("No paying merchant mapped for userId=" + user.getUserId())
+                        .responseCode(400)
+                        .build();
+            }
 
-            // Create UPI string
-            String upiLink = String.format(
-                    "upi://pay?ver=01&mode=01&pa=suvika@idfcbank&pn=Suvika&mtid=TIDSUVIKA&mid=MIDSUVIKA&cu=INR&mc=7210&tr=%s&tn=EMIPayment&am=%s",
-                    request.getOrderId(), request.getOrderAmount());
+            // 1) Ensure we have a valid token (cached for 20 minutes)
+            String bearerToken = getIdfcBearerToken();
 
-            saveApiLog(user.getUserId(),txnId, upiLink, upiLink, "GENERATEUPI", "IDFC-PAYIN", null);
+            // 2) Call IDFC generate UPI API
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("order_id", request.getOrderId());
+            requestBody.put("order_amount", request.getOrderAmount());
+            requestBody.put("name", request.getName());
+            requestBody.put("mobile", request.getMobile());
+            requestBody.put("email", request.getEmail());
 
-            // Save transaction
-            PayinTransaction transaction = PayinTransaction.builder()
-                    .userId(user.getUserId())
-                    .userName(user.getName())
-                    .txnId(txnId)
-                    .tId(tId)
-                    .orderId(request.getOrderId())
-                    .amount(request.getOrderAmount())
-                    .status("PENDING")
-                    .api("IDFC")
-                    .ipAddress(IPUtils.parseInetAddress(IPUtils.getClientIP(this.request)))
-                    .createdAt(OffsetDateTime.now())
-                    .updatedAt(OffsetDateTime.now())
-                    .build();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(bearerToken);
 
-            payinTransactionRepository.save(transaction);
+            HttpEntity<Map<String, Object>> httpEntity = new HttpEntity<>(requestBody, headers);
+
+            ResponseEntity<Map> response = restTemplate.postForEntity(idfcGenerateUpiUrl, httpEntity, Map.class);
+            Map<String, Object> result = response.getBody();
+
+            saveApiLog(user.getUserId(), txnId,
+                    objectMapper.writeValueAsString(requestBody),
+                    objectMapper.writeValueAsString(result),
+                    "GENERATEUPI", "IDFC-PAYIN", null);
+
+            if (response.getStatusCode().is2xxSuccessful() && result != null && Boolean.TRUE.equals(result.get("status"))) {
+                Map<String, Object> data = (Map<String, Object>) result.get("data");
+
+                // Persist transaction with merchant info (to avoid null merchant_id)
+                PayinTransaction transaction = PayinTransaction.builder()
+                        .userId(user.getUserId())
+                        .userName(user.getName())
+                        .merchant(payingMerchant)
+                        .txnId(txnId)
+                        .tId((String) data.getOrDefault("transactionId", generateRandomStringIDFC()))
+                        .orderId(request.getOrderId())
+                        .amount(request.getOrderAmount())
+                        .status("PENDING")
+                        .api("IDFC")
+                        .ipAddress(IPUtils.parseInetAddress(IPUtils.getClientIP(this.request)))
+                        .createdAt(OffsetDateTime.now())
+                        .updatedAt(OffsetDateTime.now())
+                        .build();
+
+                payinTransactionRepository.save(transaction);
+
+                return PayinResponseDto.builder()
+                        .status(true)
+                        .error(false)
+                        .message(String.valueOf(result.getOrDefault("message", "SUCCESS")))
+                        .responseCode(((Number) result.getOrDefault("responseCode", 200)).intValue())
+                        .data(PayinDataDto.builder()
+                                .paymentLink((String) data.get("payment_link"))
+                                .paymentProcessUrl((String) data.get("PaymentProcessUrl"))
+                                .referenceId((String) data.getOrDefault("ReferenceId", request.getOrderId()))
+                                .transactionId((String) data.getOrDefault("transactionId", txnId))
+                                .status((String) data.getOrDefault("status", "SUCCESS"))
+                                .build())
+                        .build();
+            }
+
+            // Non-success path
+            String message = result != null ? String.valueOf(result.getOrDefault("message", "FAILED")) : "FAILED";
+            int responseCode = result != null ? ((Number) result.getOrDefault("responseCode", 500)).intValue() : 500;
 
             return PayinResponseDto.builder()
-                    .status(true)
-                    .error(false)
-                    .message("SUCCESS")
-                    .responseCode(200)
+                    .status(false)
+                    .error(true)
+                    .message(message)
+                    .responseCode(responseCode)
                     .data(PayinDataDto.builder()
-                            .paymentLink(upiLink)
-                            .paymentProcessUrl("")
                             .referenceId(request.getOrderId())
                             .transactionId(txnId)
-                            .status("SUCCESS")
+                            .status("FAILED")
                             .build())
                     .build();
 
@@ -792,6 +616,44 @@ public class PayinServiceImpl implements PayinService {
                     .message(e.getMessage())
                     .responseCode(503)
                     .build();
+        }
+    }
+
+    /**
+     * Obtain bearer token for IDFC gateway. Token is cached for 20 minutes to avoid
+     * hitting auth endpoint on every request.
+     */
+    private String getIdfcBearerToken() throws JsonProcessingException {
+        synchronized (idfcTokenLock) {
+            if (cachedIdfcToken != null && cachedIdfcTokenExpiry != null &&
+                    OffsetDateTime.now().isBefore(cachedIdfcTokenExpiry.minus(Duration.ofMinutes(1)))) {
+                return cachedIdfcToken;
+            }
+
+            if (idfcAuthUsername == null || idfcAuthUsername.isBlank() ||
+                    idfcAuthPassword == null || idfcAuthPassword.isBlank()) {
+                throw new ServiceException("IDFC credentials are not configured");
+            }
+
+            Map<String, String> authBody = new HashMap<>();
+            authBody.put("user_name", idfcAuthUsername);
+            authBody.put("password", idfcAuthPassword);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<Map<String, String>> httpEntity = new HttpEntity<>(authBody, headers);
+            ResponseEntity<Map> authResponse = restTemplate.postForEntity(idfcAuthUrl, httpEntity, Map.class);
+            Map<String, Object> result = authResponse.getBody();
+
+            if (authResponse.getStatusCode().is2xxSuccessful() && result != null && result.get("token") != null) {
+                cachedIdfcToken = (String) result.get("token");
+                cachedIdfcTokenExpiry = OffsetDateTime.now().plusMinutes(20);
+                return cachedIdfcToken;
+            }
+
+            String message = result != null ? String.valueOf(result.getOrDefault("message", "Auth failed")) : "Auth failed";
+            throw new UnauthorizedException(message);
         }
     }
 
