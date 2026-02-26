@@ -36,10 +36,10 @@ public class PasswordValidator implements ConstraintValidator<ValidPassword, Str
 
     @Override
     public boolean isValid(String password, ConstraintValidatorContext context) {
+        // Allow null/empty so optional fields (e.g., partial updates) can skip validation.
+        // Required-password flows should combine this with @NotBlank.
         if (password == null || password.isEmpty()) {
-            log.debug("Password is null or empty");
-            addConstraintViolation(context, "Password cannot be null or empty");
-            return false;
+            return true;
         }
 
         if (password.length() < 8) {
