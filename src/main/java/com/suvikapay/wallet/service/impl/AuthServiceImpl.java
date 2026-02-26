@@ -257,8 +257,11 @@ public class AuthServiceImpl implements AuthService {
                 .role(user.getRole())
                 .userType(user.getUserType())
                 .isActive(user.getIsActive())
-                .payingApiStatus(user.getPayingApiStatus())
-                .payoutApiStatus(user.getPayoutApiStatus())
+                .payingApiStatus(toStatusBoolean(user.getPayingApiStatus()))
+                .payoutApiStatus(toStatusBoolean(user.getPayoutApiStatus()))
+                .payinCallback(user.getPayinCallback())
+                .payoutCallback(user.getPayoutCallback())
+                .rollingReserve(user.getRollingReserve())
                 .createdAt(user.getCreatedAt())
                 .lastLogin(user.getLastLogin())
                 .payingMerchant(user.getPayingMerchant() != null ?
@@ -272,5 +275,10 @@ public class AuthServiceImpl implements AuthService {
                                 .merchantName(user.getPayoutMerchant().getMerchantName())
                                 .build() : null)
                 .build();
+    }
+
+    private Boolean toStatusBoolean(String status) {
+        if (status == null) return null;
+        return status.equalsIgnoreCase("ACTIVE") || status.equalsIgnoreCase("TRUE");
     }
 }

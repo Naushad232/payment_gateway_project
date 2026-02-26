@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 @Data
@@ -21,8 +22,11 @@ public class UserResponse {
     private String role;
     private String userType;
     private Boolean isActive;
-    private String payingApiStatus;
-    private String payoutApiStatus;
+    private Boolean payingApiStatus;
+    private Boolean payoutApiStatus;
+    private String payinCallback;
+    private String payoutCallback;
+    private BigDecimal rollingReserve;
     private OffsetDateTime createdAt;
     private OffsetDateTime lastLogin;
     private MerchantResponse payingMerchant;

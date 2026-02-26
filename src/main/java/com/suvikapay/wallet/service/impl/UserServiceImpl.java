@@ -7,6 +7,7 @@ import com.suvikapay.wallet.dto.response.UserResponse;
 import com.suvikapay.wallet.entity.AppUser;
 import com.suvikapay.wallet.entity.Merchant;
 import com.suvikapay.wallet.entity.Wallet;
+import com.suvikapay.wallet.entity.UserIp;
 import com.suvikapay.wallet.entity.UserChargeSlab;
 import com.suvikapay.wallet.exception.ResourceAlreadyExistsException;
 import com.suvikapay.wallet.exception.ResourceNotFoundException;
@@ -15,9 +16,11 @@ import com.suvikapay.wallet.exception.UnauthorizedException;
 import com.suvikapay.wallet.repository.AppUserRepository;
 import com.suvikapay.wallet.repository.MerchantRepository;
 import com.suvikapay.wallet.repository.UserChargeSlabRepository;
+import com.suvikapay.wallet.repository.UserIpRepository;
 import com.suvikapay.wallet.repository.WalletRepository;
 import com.suvikapay.wallet.service.UserService;
 import com.suvikapay.wallet.util.AppConstants;
+import com.suvikapay.wallet.util.IPUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -30,6 +33,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.InetAddress;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -42,6 +46,7 @@ public class UserServiceImpl implements UserService {
     private final AppUserRepository userRepository;
     private final MerchantRepository merchantRepository;
     private final UserChargeSlabRepository userChargeSlabRepository;
+    private final UserIpRepository userIpRepository;
     private final WalletRepository walletRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -72,7 +77,12 @@ public class UserServiceImpl implements UserService {
                     .passwordHash(passwordEncoder.encode(request.getPassword()))
                     .role(request.getRole().toUpperCase())
                     .userType(request.getUserType())
-                    .isActive(true)
+                    .isActive(request.getIsActive() == null ? Boolean.TRUE : request.getIsActive())
+                    .payingApiStatus(toStatusString(request.getPayingApiStatus()))
+                    .payoutApiStatus(toStatusString(request.getPayoutApiStatus()))
+                    .payinCallback(request.getPayinCallback())
+                    .payoutCallback(request.getPayoutCallback())
+                    .rollingReserve(request.getRollingReserve())
                     .createdAt(OffsetDateTime.now())
                     .updatedAt(OffsetDateTime.now())
                     .build();
@@ -109,6 +119,8 @@ public class UserServiceImpl implements UserService {
 
             // Optionally persist user charge slabs if provided
             saveUserChargeSlabs(savedUser, request.getUserChargeSlabs());
+            // Optionally persist IP whitelist if provided
+            updateUserIps(savedUser, request.getIpAddresses());
 
             log.info("User created successfully: {} with role: {}",
                     savedUser.getEmailAddress(), savedUser.getRole());
@@ -213,6 +225,24 @@ public class UserServiceImpl implements UserService {
             // Check if current user has permission to update this user
             validateUserModification(existingUser);
 
+            // Update email if changed (with uniqueness check)
+            if (request.getEmail() != null &&
+                    !request.getEmail().equalsIgnoreCase(existingUser.getEmailAddress())) {
+                if (userRepository.existsByEmailAddress(request.getEmail())) {
+                    throw new ResourceAlreadyExistsException("User", "email", request.getEmail());
+                }
+                existingUser.setEmailAddress(request.getEmail());
+            }
+
+            // Update username if changed (with uniqueness check)
+            if (request.getUserName() != null &&
+                    !request.getUserName().equals(existingUser.getUserName())) {
+                if (userRepository.existsByUserName(request.getUserName())) {
+                    throw new ResourceAlreadyExistsException("User", "username", request.getUserName());
+                }
+                existingUser.setUserName(request.getUserName());
+            }
+
             // Validate role if being changed
             if (request.getRole() != null && !request.getRole().equals(existingUser.getRole())) {
                 validateCurrentUserPermission(request.getRole());
@@ -227,6 +257,18 @@ public class UserServiceImpl implements UserService {
 
             if (request.getUserType() != null) {
                 existingUser.setUserType(request.getUserType());
+            }
+
+            if (request.getPayingApiStatus() != null) {
+                existingUser.setPayingApiStatus(toStatusString(request.getPayingApiStatus()));
+            }
+
+            if (request.getPayoutApiStatus() != null) {
+                existingUser.setPayoutApiStatus(toStatusString(request.getPayoutApiStatus()));
+            }
+
+            if (request.getIsActive() != null) {
+                existingUser.setIsActive(request.getIsActive());
             }
 
             // Update merchants if provided
@@ -246,14 +288,29 @@ public class UserServiceImpl implements UserService {
                 existingUser.setPayoutMerchant(payoutMerchant);
             }
 
-            // Update password if provided
-            if (request.getPassword() != null && !request.getPassword().isEmpty()) {
-                existingUser.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+            // Update password (mandatory via validation)
+            existingUser.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+
+            if (request.getPayinCallback() != null) {
+                existingUser.setPayinCallback(request.getPayinCallback());
+            }
+
+            if (request.getPayoutCallback() != null) {
+                existingUser.setPayoutCallback(request.getPayoutCallback());
+            }
+
+            if (request.getRollingReserve() != null) {
+                existingUser.setRollingReserve(request.getRollingReserve());
             }
 
             existingUser.setUpdatedAt(OffsetDateTime.now());
 
             AppUser updatedUser = userRepository.save(existingUser);
+
+            // Replace charge slabs and IP whitelist if provided
+            updateUserChargeSlabs(updatedUser, request.getUserChargeSlabs());
+            updateUserIps(updatedUser, request.getIpAddresses());
+
             log.info("User updated successfully: {}", updatedUser.getEmailAddress());
 
             return mapToUserResponse(updatedUser);
@@ -449,8 +506,11 @@ public class UserServiceImpl implements UserService {
                 .role(user.getRole())
                 .userType(user.getUserType())
                 .isActive(user.getIsActive())
-                .payingApiStatus(user.getPayingApiStatus())
-                .payoutApiStatus(user.getPayoutApiStatus())
+                .payingApiStatus(toStatusBoolean(user.getPayingApiStatus()))
+                .payoutApiStatus(toStatusBoolean(user.getPayoutApiStatus()))
+                .payinCallback(user.getPayinCallback())
+                .payoutCallback(user.getPayoutCallback())
+                .rollingReserve(user.getRollingReserve())
                 .createdAt(user.getCreatedAt())
                 .lastLogin(user.getLastLogin())
                 .payingMerchant(user.getPayingMerchant() != null ?
@@ -486,5 +546,53 @@ public class UserServiceImpl implements UserService {
                 .toList();
 
         userChargeSlabRepository.saveAll(slabs);
+    }
+
+    private void updateUserChargeSlabs(AppUser user, List<UserChargeSlabRequest> slabRequests) {
+        List<UserChargeSlab> existing = userChargeSlabRepository.findByUserUserId(user.getUserId());
+        if (!existing.isEmpty()) {
+            userChargeSlabRepository.deleteAll(existing);
+        }
+        saveUserChargeSlabs(user, slabRequests);
+    }
+
+    private void updateUserIps(AppUser user, List<String> ipAddresses) {
+        if (ipAddresses == null) {
+            return; // no change
+        }
+
+        List<UserIp> existingIps = userIpRepository.findByUser(user);
+        if (!existingIps.isEmpty()) {
+            userIpRepository.deleteAll(existingIps);
+        }
+
+        if (ipAddresses.isEmpty()) {
+            return; // cleared
+        }
+
+        List<UserIp> newIps = ipAddresses.stream().map(ip -> {
+                    InetAddress inet = IPUtils.parseInetAddress(ip);
+                    if (inet == null) {
+                        throw new IllegalArgumentException("Invalid IP address: " + ip);
+                    }
+                    return UserIp.builder()
+                            .user(user)
+                            .ipAddress(inet)
+                            .createdAt(OffsetDateTime.now())
+                            .build();
+                })
+                .toList();
+
+        userIpRepository.saveAll(newIps);
+    }
+
+    private String toStatusString(Boolean status) {
+        if (status == null) return null;
+        return Boolean.TRUE.equals(status) ? "ACTIVE" : "INACTIVE";
+    }
+
+    private Boolean toStatusBoolean(String status) {
+        if (status == null) return null;
+        return status.equalsIgnoreCase("ACTIVE") || status.equalsIgnoreCase("TRUE");
     }
 }

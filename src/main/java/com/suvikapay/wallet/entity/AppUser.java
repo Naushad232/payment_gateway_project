@@ -58,6 +58,15 @@ public class AppUser {
     @Column(name = "user_token")
     private String userToken;
 
+    @Column(name = "payin_callback")
+    private String payinCallback;
+
+    @Column(name = "payout_callback")
+    private String payoutCallback;
+
+    @Column(name = "rolling_reserve", precision = 18, scale = 4)
+    private java.math.BigDecimal rollingReserve;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
