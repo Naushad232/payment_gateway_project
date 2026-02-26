@@ -6,10 +6,13 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 @Data
 @Builder
@@ -38,4 +41,7 @@ public class CreateUserRequest {
     private String userType;
     private Long payingMerchantId;
     private Long payoutMerchantId;
+
+    @Valid
+    private List<UserChargeSlabRequest> userChargeSlabs;
 }

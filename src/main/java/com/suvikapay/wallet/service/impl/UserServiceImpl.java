@@ -2,16 +2,19 @@
 package com.suvikapay.wallet.service.impl;
 
 import com.suvikapay.wallet.dto.request.CreateUserRequest;
+import com.suvikapay.wallet.dto.request.UserChargeSlabRequest;
 import com.suvikapay.wallet.dto.response.UserResponse;
 import com.suvikapay.wallet.entity.AppUser;
 import com.suvikapay.wallet.entity.Merchant;
 import com.suvikapay.wallet.entity.Wallet;
+import com.suvikapay.wallet.entity.UserChargeSlab;
 import com.suvikapay.wallet.exception.ResourceAlreadyExistsException;
 import com.suvikapay.wallet.exception.ResourceNotFoundException;
 import com.suvikapay.wallet.exception.ServiceException;
 import com.suvikapay.wallet.exception.UnauthorizedException;
 import com.suvikapay.wallet.repository.AppUserRepository;
 import com.suvikapay.wallet.repository.MerchantRepository;
+import com.suvikapay.wallet.repository.UserChargeSlabRepository;
 import com.suvikapay.wallet.repository.WalletRepository;
 import com.suvikapay.wallet.service.UserService;
 import com.suvikapay.wallet.util.AppConstants;
@@ -38,6 +41,7 @@ public class UserServiceImpl implements UserService {
 
     private final AppUserRepository userRepository;
     private final MerchantRepository merchantRepository;
+    private final UserChargeSlabRepository userChargeSlabRepository;
     private final WalletRepository walletRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -102,6 +106,9 @@ public class UserServiceImpl implements UserService {
                     .updatedAt(OffsetDateTime.now())
                     .build();
             walletRepository.save(wallet);
+
+            // Optionally persist user charge slabs if provided
+            saveUserChargeSlabs(savedUser, request.getUserChargeSlabs());
 
             log.info("User created successfully: {} with role: {}",
                     savedUser.getEmailAddress(), savedUser.getRole());
@@ -457,5 +464,27 @@ public class UserServiceImpl implements UserService {
                                 .merchantName(user.getPayoutMerchant().getMerchantName())
                                 .build() : null)
                 .build();
+    }
+
+    private void saveUserChargeSlabs(AppUser user, List<UserChargeSlabRequest> slabRequests) {
+        if (slabRequests == null || slabRequests.isEmpty()) {
+            return; // optional
+        }
+
+        List<UserChargeSlab> slabs = slabRequests.stream()
+                .map(req -> UserChargeSlab.builder()
+                        .user(user)
+                        .startAmount(req.getStartAmount())
+                        .endAmount(req.getEndAmount())
+                        .payinCharge(req.getPayinCharge())
+                        .payinChargeType(req.getPayinChargeType())
+                        .payoutCharge(req.getPayoutCharge())
+                        .payoutChargeType(req.getPayoutChargeType())
+                        .agentPayinCharge(req.getAgentPayinCharge())
+                        .agentPayoutCharge(req.getAgentPayoutCharge())
+                        .build())
+                .toList();
+
+        userChargeSlabRepository.saveAll(slabs);
     }
 }
