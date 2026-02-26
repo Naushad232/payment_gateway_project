@@ -44,6 +44,43 @@ public class PayinController {
         return ResponseEntity.ok(ApiResponse.success(response.getMessage(), response));
     }
 
+    // src/main/java/com/suvikapay/wallet/controller/PayinController.java
+
+    @Operation(summary = "IDFC payin callback", description = "Webhook for IDFC payin callbacks")
+    @PostMapping("/idfc-callback")
+    public ResponseEntity<Map<String, Object>> idfcPayinCallback(@RequestBody Map<String, Object> payload) {
+        log.info("IDFC callback received: {}", payload);
+
+        // Save raw response first (similar to saveIdfcResponse in your other service)
+        payinService.saveIdfcResponse(payload);
+
+        // Extract and transform the callback data
+        PayinCallbackDto callbackDto = PayinCallbackDto.builder()
+                .bank("IDFC")
+                .orderId((String) payload.get("OrgTxnRefId"))
+                .txnId((String) payload.get("OrgTxnRefId"))
+                .amount(new BigDecimal(payload.get("Amount").toString()))
+                .status("Approved".equals(payload.get("ResDesc")))
+                .rrn((String) payload.get("OrgCustRefId"))
+                .payerName((String) payload.get("PayerMobileNumber"))
+                .payerUpi((String) payload.get("PayerVirAddr"))
+                .utr((String) payload.get("OrgCustRefId"))
+                .build();
+
+        // Process through the master webhook handler
+        Map<String, Object> response = payinService.bankWebhookMaster(callbackDto);
+
+        // Return response in the format IDFC expects
+        return ResponseEntity.ok(Map.of(
+                "OperationName", "MerchantStatusUpdateResponse",
+                "TxnId", payload.get("OrgTxnRefId"),
+                "ResCode", payload.get("ResCode"),
+                "ResDesc", payload.get("ResDesc"),
+                "TimeStamp", payload.get("TimeStamp"),
+                "HMAC", payload.get("HMAC")
+        ));
+    }
+
 //    @Operation(summary = "Check payin transaction status", description = "Check status of a payin transaction")
 //    @PostMapping("/check-status")
 //    @PreAuthorize("isAuthenticated()")

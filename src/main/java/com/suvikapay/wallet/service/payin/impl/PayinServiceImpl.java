@@ -17,7 +17,6 @@ import com.suvikapay.wallet.util.CommonUtils;
 import com.suvikapay.wallet.util.EncryptionUtil;
 import com.suvikapay.wallet.util.IPUtils;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.transaction.UserTransaction;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +50,8 @@ public class PayinServiceImpl implements PayinService {
     private final UserChargeSlabRepository userChargeSlabRepository;
     private final MerchantRepository merchantRepository;
     private final SystemSettingsRepository systemSettingsRepository;
+    private final MerchantChargeSlabRepository merchantChargeSlabRepository; // ADD THIS
+
     private final UserService userService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -467,6 +468,444 @@ public class PayinServiceImpl implements PayinService {
         }
     }
 
+
+// src/main/java/com/suvikapay/wallet/service/payin/impl/PayinServiceImpl.java
+
+    @Override
+    public Map<String, Object> saveIdfcResponse(Map<String, Object> payload) {
+        try {
+            ApiLog apiLog = ApiLog.builder()
+                    .txnId("")
+                    .userId(0)
+                    .txnType("PAYIN")
+                    .request("")
+                    .response(objectMapper.writeValueAsString(payload))
+                    .service("CALLBACK-PAYIN-SAVE-IDFC")
+                    .serviceApi("IDFC")
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build();
+
+            apiLogRepository.save(apiLog);
+
+            return Map.of(
+                    "status", true,
+                    "error", false,
+                    "message", "callback received saved"
+            );
+        } catch (JsonProcessingException e) {
+            log.error("Error saving IDFC callback", e);
+            return Map.of(
+                    "status", false,
+                    "error", true,
+                    "message", e.getMessage()
+            );
+        }
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> bankWebhookMaster(PayinCallbackDto callbackDto) {
+        try {
+            log.info("Processing bank webhook master: {}", callbackDto);
+
+            Optional<PayinTransaction> payinTxnOpt = payinTransactionRepository.findByOrderId(callbackDto.getOrderId());
+
+            if (payinTxnOpt.isEmpty()) {
+                log.warn("Transaction not found for orderId: {}", callbackDto.getOrderId());
+
+                ApiLog missingTxnLog = ApiLog.builder()
+                        .txnId("Transaction not found: " + callbackDto.getOrderId())
+                        .userId(0)
+                        .txnType("PAYIN")
+                        .request("")
+                        .response(objectMapper.writeValueAsString(callbackDto))
+                        .service("CALLBACK-PAYIN-TXN-NOT-FOUND")
+                        .serviceApi(callbackDto.getBank())
+                        .createdAt(OffsetDateTime.now())
+                        .updatedAt(OffsetDateTime.now())
+                        .build();
+                apiLogRepository.save(missingTxnLog);
+
+                return Map.of(
+                        "status", false,
+                        "error", true,
+                        "message", "Transaction not found"
+                );
+            }
+
+            PayinTransaction payinTxn = payinTxnOpt.get();
+            String txnId = payinTxn.getTxnId();
+            String orderId = payinTxn.getOrderId();
+            Integer userId = payinTxn.getUserId();
+
+            ApiLog apiLog = ApiLog.builder()
+                    .txnId(txnId)
+                    .userId(userId)
+                    .txnType("PAYIN")
+                    .request("")
+                    .response(objectMapper.writeValueAsString(callbackDto))
+                    .service("CALLBACK-PAYIN-BANK-WEBHOOK")
+                    .serviceApi(callbackDto.getBank())
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build();
+            apiLogRepository.save(apiLog);
+
+            if (callbackDto.isStatus()) {
+                AppUser user = userService.getAppUserById(userId);
+
+                Map<String, Object> paymentDetails = new HashMap<>();
+                paymentDetails.put("payerAmount", callbackDto.getAmount());
+                paymentDetails.put("bankRRN", callbackDto.getRrn());
+                paymentDetails.put("payerName", callbackDto.getPayerName());
+                paymentDetails.put("payerUpi", callbackDto.getPayerUpi());
+                paymentDetails.put("status", "SUCCESS");
+                paymentDetails.put("utr", callbackDto.getUtr());
+                paymentDetails.put("txnId", txnId);
+                paymentDetails.put("orderId", orderId);
+                paymentDetails.put("userId", userId);
+                paymentDetails.put("userName", user.getName());
+                paymentDetails.put("api", callbackDto.getBank());
+
+                Merchant payingMerchant = user.getPayingMerchant();
+                String merchantName = payingMerchant != null ? payingMerchant.getMerchantName() : "";
+
+                Map<String, Object> merchantCharge = getMerchantCharges(
+                        merchantName,
+                        callbackDto.getAmount(),
+                        "PAYIN"
+                );
+
+                Map<String, Object> userCharge = getUserCharges(
+                        userId,
+                        callbackDto.getAmount(),
+                        (BigDecimal) merchantCharge.get("merchantTotalCharge"),
+                        "PAYIN"
+                );
+
+                BigDecimal openBal = BigDecimal.ZERO; // You'll need to implement wallet decryption
+                BigDecimal totalAddedAmount = callbackDto.getAmount()
+                        .subtract((BigDecimal) userCharge.get("totalCharge"))
+                        .subtract((BigDecimal) userCharge.get("totalGst"));
+                BigDecimal closeBal = openBal.add(totalAddedAmount);
+
+                Map<String, Object> chargeData = new HashMap<>();
+                chargeData.put("merchantCharge", merchantCharge.get("merchantTotalCharge"));
+                chargeData.put("merchantGst", merchantCharge.get("merchantTotalGst"));
+                chargeData.put("adminCharge", userCharge.get("adminTotalcharge"));
+                chargeData.put("admintax", userCharge.get("adminTax"));
+                chargeData.put("agentCharge", userCharge.get("agentTotalcharge"));
+                chargeData.put("agenttax", userCharge.get("agentTax"));
+                chargeData.put("charge", userCharge.get("totalCharge"));
+                chargeData.put("gst", userCharge.get("totalGst"));
+                chargeData.put("totalAmount", totalAddedAmount);
+                chargeData.put("payerAmount", callbackDto.getAmount());
+                chargeData.put("openBalance", openBal);
+                chargeData.put("closeBalance", closeBal);
+                chargeData.put("userId", userId);
+                chargeData.put("userName", user.getName());
+                chargeData.put("txnId", txnId);
+                chargeData.put("orderId", orderId);
+
+                saveTransactionToDB(user, paymentDetails, chargeData);
+
+                if (user.getPayingApiStatus() != null && !user.getPayingApiStatus().isEmpty()) {
+                    sendClientsCallbackUrlWebhook(user, paymentDetails);
+                } else {
+                    ApiLog noCallbackLog = ApiLog.builder()
+                            .txnId(txnId)
+                            .userId(userId)
+                            .txnType("PAYIN")
+                            .request(objectMapper.writeValueAsString(paymentDetails))
+                            .response("")
+                            .service("CALLBACK-PAYIN-CLIENT-NOTFOUND_" + orderId)
+                            .serviceApi(callbackDto.getBank())
+                            .createdAt(OffsetDateTime.now())
+                            .updatedAt(OffsetDateTime.now())
+                            .build();
+                    apiLogRepository.save(noCallbackLog);
+                }
+            } else {
+                ApiLog failedLog = ApiLog.builder()
+                        .txnId(txnId)
+                        .userId(userId)
+                        .txnType("PAYIN")
+                        .request("")
+                        .response(objectMapper.writeValueAsString(callbackDto))
+                        .service("CALLBACK-PAYIN-FAILED")
+                        .serviceApi(callbackDto.getBank() + "-PAYIN-CALLBACK")
+                        .createdAt(OffsetDateTime.now())
+                        .updatedAt(OffsetDateTime.now())
+                        .build();
+                apiLogRepository.save(failedLog);
+            }
+
+            return Map.of(
+                    "status", true,
+                    "error", false,
+                    "message", "callback received"
+            );
+
+        } catch (Exception e) {
+            log.error("Error processing bank webhook", e);
+            return Map.of(
+                    "status", false,
+                    "error", true,
+                    "message", e.getMessage()
+            );
+        }
+    }
+
+    private Map<String, Object> getMerchantCharges(String merchantName, BigDecimal amount, String type) {
+        BigDecimal merchantCharge = new BigDecimal("1.75");
+        String merchantChargeType = "PERCENTAGE";
+        BigDecimal merchantGst = new BigDecimal("18");
+        BigDecimal merchantTotalCharge = BigDecimal.ZERO;
+
+        Optional<Merchant> merchantOpt = merchantRepository.findByMerchantName(merchantName);
+
+        if (merchantOpt.isPresent()) {
+            Merchant merchant = merchantOpt.get();
+            List<MerchantChargeSlab> slabs = merchantChargeSlabRepository
+                    .findByMerchantMerchantIdAndServiceTypeAndModeAndStartAmountLessThanEqualAndEndAmountGreaterThanEqual(
+                            merchant.getMerchantId(),
+                            "WALLET",
+                            type,
+                            amount,
+                            amount
+                    );
+
+            if (!slabs.isEmpty()) {
+                MerchantChargeSlab slab = slabs.get(0);
+                merchantCharge = slab.getCharge();
+                merchantChargeType = slab.getChargeType();
+                merchantGst = slab.getGstPercent() != null ? slab.getGstPercent() : BigDecimal.ZERO;
+            }
+        }
+
+        if ("FLAT".equals(merchantChargeType)) {
+            merchantTotalCharge = merchantCharge;
+        } else if ("PERCENTAGE".equals(merchantChargeType)) {
+            merchantTotalCharge = amount.multiply(merchantCharge)
+                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        }
+
+        BigDecimal merchantTotalGst = merchantTotalCharge.multiply(merchantGst)
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("merchantTotalCharge", merchantTotalCharge);
+        result.put("merchantChargeType", merchantChargeType);
+        result.put("merchantTotalGst", merchantTotalGst);
+        return result;
+    }
+
+    private Map<String, Object> getUserCharges(Integer userId, BigDecimal amount,
+                                               BigDecimal merchantTotalCharge, String type) {
+        BigDecimal charge = new BigDecimal("2");
+        BigDecimal adminCharge = new BigDecimal("20");
+        BigDecimal agentCharge = new BigDecimal("20");
+        String chargeType = "PERCENTAGE";
+        BigDecimal gst = new BigDecimal("18");
+
+        List<UserChargeSlab> slabs = userChargeSlabRepository
+                .findByUserUserIdAndStartAmountLessThanEqualAndEndAmountGreaterThanEqual(
+                        userId, amount, amount);
+
+        if (!slabs.isEmpty()) {
+            UserChargeSlab slab = slabs.get(0);
+            if ("PAYIN".equals(type)) {
+                charge = slab.getPayinCharge() != null ? slab.getPayinCharge() : charge;
+                chargeType = slab.getPayinChargeType() != null ? slab.getPayinChargeType() : chargeType;
+                adminCharge = slab.getAgentPayinCharge() != null ? slab.getAgentPayinCharge() : adminCharge;
+                agentCharge = slab.getAgentPayinCharge() != null ? slab.getAgentPayinCharge() : agentCharge;
+            }
+        }
+
+        BigDecimal totalCharge = BigDecimal.ZERO;
+        BigDecimal adminTotalcharge = BigDecimal.ZERO;
+        BigDecimal agentTotalcharge = BigDecimal.ZERO;
+
+        if ("FLAT".equals(chargeType)) {
+            totalCharge = charge;
+            adminTotalcharge = adminCharge.subtract(merchantTotalCharge);
+            agentTotalcharge = agentCharge;
+        } else if ("PERCENTAGE".equals(chargeType)) {
+            totalCharge = amount.multiply(charge).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+            adminTotalcharge = amount.multiply(adminCharge).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP)
+                    .subtract(merchantTotalCharge);
+            agentTotalcharge = amount.multiply(agentCharge).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        }
+
+        BigDecimal totalGst = totalCharge.multiply(gst).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        BigDecimal adminTax = adminTotalcharge.multiply(gst).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        BigDecimal agentTax = agentTotalcharge.multiply(gst).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("totalCharge", totalCharge);
+        result.put("adminCharge", adminCharge);
+        result.put("agentCharge", agentCharge);
+        result.put("chargeType", chargeType);
+        result.put("totalGst", totalGst);
+        result.put("adminTotalcharge", adminTotalcharge);
+        result.put("agentTotalcharge", agentTotalcharge);
+        result.put("adminTax", adminTax);
+        result.put("agentTax", agentTax);
+        return result;
+    }
+
+    @Transactional
+    protected void saveTransactionToDB(AppUser user, Map<String, Object> paymentDetails,
+                                       Map<String, Object> chargeData) {
+        try {
+            UserTransaction userTransaction = UserTransaction.builder()
+                    .userId(user.getUserId())
+                    .userName(user.getName())
+                    .txnId((String) chargeData.get("txnId"))
+                    .orderId((String) chargeData.get("orderId"))
+                    .type("CREDIT")
+                    .operator("PAYIN")
+                    .payerAmount((BigDecimal) chargeData.get("payerAmount"))
+                    .callbackReceived(true)
+                    .merchantCharge((BigDecimal) chargeData.get("merchantCharge"))
+                    .merchantAssigned(user.getPayingMerchant() != null ?
+                            user.getPayingMerchant().getMerchantName() : "")
+                    .merchantGst((BigDecimal) chargeData.get("merchantGst"))
+                    .adminCharge((BigDecimal) chargeData.get("adminCharge"))
+                    .admintax((BigDecimal) chargeData.get("admintax"))
+                    .agentCharge((BigDecimal) chargeData.get("agentCharge"))
+                    .agenttax((BigDecimal) chargeData.get("agenttax"))
+                    .openBalance((BigDecimal) chargeData.get("openBalance"))
+                    .amount((BigDecimal) chargeData.get("totalAmount"))
+                    .walletBalance((BigDecimal) chargeData.get("closeBalance"))
+                    .closingSettlementBalance(BigDecimal.ZERO)
+                    .credit((BigDecimal) chargeData.get("totalAmount"))
+                    .debit(BigDecimal.ZERO)
+                    .status("SUCCESS")
+                    .remark("Money Added Via Upi")
+                    .api((String) paymentDetails.get("api"))
+                    .requestIp(IPUtils.getClientIP(request))
+                    .chargeDetails(chargeData.toString())
+                    .createdBy(user.getUserId())
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build();
+
+            userTransactionRepository.save(userTransaction);
+
+            PayinTransaction payinTxn = payinTransactionRepository
+                    .findByTxnId((String) chargeData.get("txnId"))
+                    .orElseThrow(() -> new ResourceNotFoundException("Payin transaction not found"));
+
+            payinTxn.setPayerName((String) paymentDetails.get("payerName"));
+            payinTxn.setPayerUpi((String) paymentDetails.get("payerUpi"));
+            payinTxn.setMerchantCharge((BigDecimal) chargeData.get("merchantCharge"));
+            payinTxn.setMerchantGst((BigDecimal) chargeData.get("merchantGst"));
+            payinTxn.setAdminCharge((BigDecimal) chargeData.get("adminCharge"));
+            payinTxn.setAdminTax((BigDecimal) chargeData.get("admintax"));
+            payinTxn.setAgentCharge((BigDecimal) chargeData.get("agentCharge"));
+            payinTxn.setAgentTax((BigDecimal) chargeData.get("agenttax"));
+            payinTxn.setCharge((BigDecimal) chargeData.get("charge"));
+            payinTxn.setGst((BigDecimal) chargeData.get("gst"));
+            payinTxn.setTotalAmount((BigDecimal) chargeData.get("totalAmount"));
+            payinTxn.setUtr((String) paymentDetails.get("utr"));
+            payinTxn.setStatus("SUCCESS");
+
+            payinTransactionRepository.save(payinTxn);
+
+            ApiLog apiLog = ApiLog.builder()
+                    .txnId((String) chargeData.get("txnId"))
+                    .userId(user.getUserId())
+                    .txnType("PAYIN")
+                    .request("SAVE_USER_TRANSACTION_" + chargeData.get("txnId"))
+                    .response(chargeData.toString())
+                    .service("SAVE_USER_TRANSACTION")
+                    .serviceApi((String) paymentDetails.get("api"))
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build();
+            apiLogRepository.save(apiLog);
+
+        } catch (Exception e) {
+            log.error("Error saving transaction to DB", e);
+            try {
+                ApiLog errorLog = ApiLog.builder()
+                        .txnId((String) chargeData.get("txnId"))
+                        .userId(user.getUserId())
+                        .txnType("PAYIN")
+                        .request(chargeData.toString())
+                        .response(e.getMessage())
+                        .service("SAVE_TRANSACTION_ERROR")
+                        .serviceApi((String) paymentDetails.get("api"))
+                        .createdAt(OffsetDateTime.now())
+                        .updatedAt(OffsetDateTime.now())
+                        .build();
+                apiLogRepository.save(errorLog);
+            } catch (Exception ex) {
+                log.error("Error logging transaction failure", ex);
+            }
+        }
+    }
+
+    protected void sendClientsCallbackUrlWebhook(AppUser user, Map<String, Object> paymentDetails)
+            throws JsonProcessingException {
+        Map<String, Object> payinCallBackData = new HashMap<>();
+        payinCallBackData.put("event", "TRANSACTION_CREDIT");
+        payinCallBackData.put("status", "SUCCESS");
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("order_id", paymentDetails.get("orderId"));
+        data.put("reference", paymentDetails.get("orderId"));
+        data.put("name", paymentDetails.get("payerName"));
+        data.put("payer_UPIID", paymentDetails.get("payerUpi"));
+        data.put("amount", paymentDetails.get("payerAmount"));
+        data.put("UTR", paymentDetails.get("bankRRN"));
+        data.put("payment_mode", "UPI");
+        data.put("remarks", "Transaction Successful");
+        data.put("status", "SUCCESS");
+        data.put("created_at", new Date());
+
+        payinCallBackData.put("data", data);
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payinCallBackData, headers);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(
+                    user.getPayingApiStatus(), entity, String.class);
+
+            ApiLog apiLog = ApiLog.builder()
+                    .txnId((String) paymentDetails.get("txnId"))
+                    .userId(user.getUserId())
+                    .txnType("PAYIN")
+                    .request(objectMapper.writeValueAsString(payinCallBackData))
+                    .response(response.getBody())
+                    .service("CALLBACK-PAYIN-CLIENT-SENT")
+                    .serviceApi((String) paymentDetails.get("api"))
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build();
+            apiLogRepository.save(apiLog);
+
+        } catch (Exception e) {
+            log.error("Error sending client callback", e);
+            ApiLog errorLog = ApiLog.builder()
+                    .txnId((String) paymentDetails.get("txnId"))
+                    .userId(user.getUserId())
+                    .txnType("PAYIN")
+                    .request(objectMapper.writeValueAsString(payinCallBackData))
+                    .response(e.getMessage())
+                    .service("CALLBACK-PAYIN-CLIENT-ERROR")
+                    .serviceApi((String) paymentDetails.get("api"))
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build();
+            apiLogRepository.save(errorLog);
+        }
+    }
 //    private PayinResponseDto idfcPayin(AppUser user, String txnId, CreatePaymentLinkDto request) {
 //        try {
 //            String tId = generateRandomStringIDFC();

@@ -13,7 +13,7 @@ spring:
     name: wallet-ledger
   
   datasource:
-    url: jdbc:postgresql://localhost:5432/pay_test
+    url: jdbc:postgresql://localhost:5432/pay_test2
     username: postgres
     password: postgres
     hikari:
@@ -31,7 +31,7 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: update
+#      ddl-auto: validate
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -102,3 +102,13 @@ app:
   encryption:
     algorithm: AES/CBC/PKCS5Padding
     secret: ${ENCRYPTION_SECRET:YourSecretKey123}
+
+# IDFC pay-in gateway configuration
+idfc:
+  auth:
+    url: https://gateway.suvikapay.com/auth/token
+    username: himanshu
+    password: Nic@9211
+  generate:
+    upi:
+      url: https://gateway.suvikapay.com/api/v6/generateUpi
