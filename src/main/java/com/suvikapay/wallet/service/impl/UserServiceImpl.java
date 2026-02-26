@@ -2,6 +2,7 @@
 package com.suvikapay.wallet.service.impl;
 
 import com.suvikapay.wallet.dto.request.CreateUserRequest;
+import com.suvikapay.wallet.dto.request.UpdateUserPartialRequest;
 import com.suvikapay.wallet.dto.request.UserChargeSlabRequest;
 import com.suvikapay.wallet.dto.response.UserResponse;
 import com.suvikapay.wallet.entity.AppUser;
@@ -319,6 +320,110 @@ public class UserServiceImpl implements UserService {
             throw e;
         } catch (Exception e) {
             log.error("Error updating user: {}", userId, e);
+            throw new ServiceException("Failed to update user: " + e.getMessage());
+        }
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateUserPartial(Integer userId, UpdateUserPartialRequest request) {
+        try {
+            AppUser existingUser = userRepository.findById(userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+
+            validateUserModification(existingUser);
+
+            if (request.getEmail() != null &&
+                    !request.getEmail().equalsIgnoreCase(existingUser.getEmailAddress())) {
+                if (userRepository.existsByEmailAddress(request.getEmail())) {
+                    throw new ResourceAlreadyExistsException("User", "email", request.getEmail());
+                }
+                existingUser.setEmailAddress(request.getEmail());
+            }
+
+            if (request.getUserName() != null &&
+                    !request.getUserName().equals(existingUser.getUserName())) {
+                if (userRepository.existsByUserName(request.getUserName())) {
+                    throw new ResourceAlreadyExistsException("User", "username", request.getUserName());
+                }
+                existingUser.setUserName(request.getUserName());
+            }
+
+            if (request.getRole() != null && !request.getRole().equals(existingUser.getRole())) {
+                validateCurrentUserPermission(request.getRole());
+                validateUserCreationRole(request.getRole());
+                existingUser.setRole(request.getRole().toUpperCase());
+            }
+
+            if (request.getName() != null) {
+                existingUser.setName(request.getName());
+            }
+
+            if (request.getUserType() != null) {
+                existingUser.setUserType(request.getUserType());
+            }
+
+            if (request.getPayingMerchantId() != null) {
+                Merchant payingMerchant = merchantRepository.findById(request.getPayingMerchantId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Merchant", "id", request.getPayingMerchantId()));
+                validateMerchantAssignment(payingMerchant);
+                existingUser.setPayingMerchant(payingMerchant);
+            }
+
+            if (request.getPayoutMerchantId() != null) {
+                Merchant payoutMerchant = merchantRepository.findById(request.getPayoutMerchantId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Merchant", "id", request.getPayoutMerchantId()));
+                validateMerchantAssignment(payoutMerchant);
+                existingUser.setPayoutMerchant(payoutMerchant);
+            }
+
+            if (request.getPayingApiStatus() != null) {
+                existingUser.setPayingApiStatus(toStatusString(request.getPayingApiStatus()));
+            }
+
+            if (request.getPayoutApiStatus() != null) {
+                existingUser.setPayoutApiStatus(toStatusString(request.getPayoutApiStatus()));
+            }
+
+            if (request.getIsActive() != null) {
+                existingUser.setIsActive(request.getIsActive());
+            }
+
+            if (request.getPassword() != null && !request.getPassword().isEmpty()) {
+                existingUser.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+            }
+
+            if (request.getPayinCallback() != null) {
+                existingUser.setPayinCallback(request.getPayinCallback());
+            }
+
+            if (request.getPayoutCallback() != null) {
+                existingUser.setPayoutCallback(request.getPayoutCallback());
+            }
+
+            if (request.getRollingReserve() != null) {
+                existingUser.setRollingReserve(request.getRollingReserve());
+            }
+
+            existingUser.setUpdatedAt(OffsetDateTime.now());
+
+            AppUser updatedUser = userRepository.save(existingUser);
+
+            if (request.getUserChargeSlabs() != null) {
+                updateUserChargeSlabs(updatedUser, request.getUserChargeSlabs());
+            }
+
+            if (request.getIpAddresses() != null) {
+                updateUserIps(updatedUser, request.getIpAddresses());
+            }
+
+            log.info("User partially updated successfully: {}", updatedUser.getEmailAddress());
+            return mapToUserResponse(updatedUser);
+
+        } catch (ResourceNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error partially updating user: {}", userId, e);
             throw new ServiceException("Failed to update user: " + e.getMessage());
         }
     }

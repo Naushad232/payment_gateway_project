@@ -3,6 +3,7 @@ package com.suvikapay.wallet.controller;
 
 import com.suvikapay.wallet.dto.PaginationRequest;
 import com.suvikapay.wallet.dto.request.CreateUserRequest;
+import com.suvikapay.wallet.dto.request.UpdateUserPartialRequest;
 import com.suvikapay.wallet.dto.response.ApiResponse;
 import com.suvikapay.wallet.dto.response.UserResponse;
 import com.suvikapay.wallet.service.UserService;
@@ -100,6 +101,23 @@ public class UserController {
             @PathVariable("userId") Integer userId,
             @Valid @RequestBody CreateUserRequest request) {
         UserResponse userResponse = userService.updateUser(userId, request);
+        return ResponseEntity.ok(ApiResponse.success("User updated successfully", userResponse));
+    }
+
+    @Operation(summary = "Partially update user", description = "Update specific user fields")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "User updated successfully"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Forbidden"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "User not found")
+    })
+    @PatchMapping("/{userId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<UserResponse>> partialUpdateUser(
+            @PathVariable("userId") Integer userId,
+            @Valid @RequestBody UpdateUserPartialRequest request) {
+        UserResponse userResponse = userService.updateUserPartial(userId, request);
         return ResponseEntity.ok(ApiResponse.success("User updated successfully", userResponse));
     }
 
