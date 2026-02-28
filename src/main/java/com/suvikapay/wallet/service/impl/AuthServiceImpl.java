@@ -7,6 +7,7 @@ import com.suvikapay.wallet.dto.request.CreateUserRequest;
 import com.suvikapay.wallet.dto.request.RefreshTokenRequest;
 import com.suvikapay.wallet.dto.response.AuthResponse;
 import com.suvikapay.wallet.dto.response.UserResponse;
+import com.suvikapay.wallet.dto.response.UserChargeSlabResponse;
 import com.suvikapay.wallet.entity.AppUser;
 import com.suvikapay.wallet.entity.Merchant;
 import com.suvikapay.wallet.entity.Wallet;
@@ -16,6 +17,8 @@ import com.suvikapay.wallet.exception.UnauthorizedException;
 import com.suvikapay.wallet.repository.AppUserRepository;
 import com.suvikapay.wallet.repository.MerchantRepository;
 import com.suvikapay.wallet.repository.WalletRepository;
+import com.suvikapay.wallet.repository.UserChargeSlabRepository;
+import com.suvikapay.wallet.repository.UserIpRepository;
 import com.suvikapay.wallet.service.AuthService;
 import com.suvikapay.wallet.service.JwtService;
 import com.suvikapay.wallet.service.UserDetailsServiceImpl;
@@ -44,6 +47,8 @@ public class AuthServiceImpl implements AuthService {
     private final AppUserRepository userRepository;
     private final MerchantRepository merchantRepository;
     private final WalletRepository walletRepository;
+    private final UserChargeSlabRepository userChargeSlabRepository;
+    private final UserIpRepository userIpRepository;
     private final UserDetailsServiceImpl userDetailsService;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
@@ -262,6 +267,8 @@ public class AuthServiceImpl implements AuthService {
                 .payinCallback(user.getPayinCallback())
                 .payoutCallback(user.getPayoutCallback())
                 .rollingReserve(user.getRollingReserve())
+                .userChargeSlabs(mapChargeSlabs(user))
+                .ipAddresses(mapIpAddresses(user))
                 .createdAt(user.getCreatedAt())
                 .lastLogin(user.getLastLogin())
                 .payingMerchant(user.getPayingMerchant() != null ?
@@ -280,5 +287,29 @@ public class AuthServiceImpl implements AuthService {
     private Boolean toStatusBoolean(String status) {
         if (status == null) return null;
         return status.equalsIgnoreCase("ACTIVE") || status.equalsIgnoreCase("TRUE");
+    }
+
+    private java.util.List<UserChargeSlabResponse> mapChargeSlabs(AppUser user) {
+        return userChargeSlabRepository.findByUserUserId(user.getUserId())
+                .stream()
+                .map(slab -> UserChargeSlabResponse.builder()
+                        .startAmount(slab.getStartAmount())
+                        .endAmount(slab.getEndAmount())
+                        .payinCharge(slab.getPayinCharge())
+                        .payinChargeType(slab.getPayinChargeType())
+                        .payoutCharge(slab.getPayoutCharge())
+                        .payoutChargeType(slab.getPayoutChargeType())
+                        .agentPayinCharge(slab.getAgentPayinCharge())
+                        .agentPayoutCharge(slab.getAgentPayoutCharge())
+                        .build())
+                .toList();
+    }
+
+    private java.util.List<String> mapIpAddresses(AppUser user) {
+        return userIpRepository.findByUser(user)
+                .stream()
+                .map(ip -> ip.getIpAddress() != null ? ip.getIpAddress().getHostAddress() : null)
+                .filter(ip -> ip != null)
+                .toList();
     }
 }

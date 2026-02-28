@@ -5,6 +5,7 @@ import com.suvikapay.wallet.dto.request.CreateUserRequest;
 import com.suvikapay.wallet.dto.request.UpdateUserPartialRequest;
 import com.suvikapay.wallet.dto.request.UserChargeSlabRequest;
 import com.suvikapay.wallet.dto.response.UserResponse;
+import com.suvikapay.wallet.dto.response.UserChargeSlabResponse;
 import com.suvikapay.wallet.entity.AppUser;
 import com.suvikapay.wallet.entity.Merchant;
 import com.suvikapay.wallet.entity.Wallet;
@@ -616,6 +617,8 @@ public class UserServiceImpl implements UserService {
                 .payinCallback(user.getPayinCallback())
                 .payoutCallback(user.getPayoutCallback())
                 .rollingReserve(user.getRollingReserve())
+                .userChargeSlabs(mapChargeSlabs(user))
+                .ipAddresses(mapIpAddresses(user))
                 .createdAt(user.getCreatedAt())
                 .lastLogin(user.getLastLogin())
                 .payingMerchant(user.getPayingMerchant() != null ?
@@ -699,5 +702,29 @@ public class UserServiceImpl implements UserService {
     private Boolean toStatusBoolean(String status) {
         if (status == null) return null;
         return status.equalsIgnoreCase("ACTIVE") || status.equalsIgnoreCase("TRUE");
+    }
+
+    private List<UserChargeSlabResponse> mapChargeSlabs(AppUser user) {
+        return userChargeSlabRepository.findByUserUserId(user.getUserId())
+                .stream()
+                .map(slab -> UserChargeSlabResponse.builder()
+                        .startAmount(slab.getStartAmount())
+                        .endAmount(slab.getEndAmount())
+                        .payinCharge(slab.getPayinCharge())
+                        .payinChargeType(slab.getPayinChargeType())
+                        .payoutCharge(slab.getPayoutCharge())
+                        .payoutChargeType(slab.getPayoutChargeType())
+                        .agentPayinCharge(slab.getAgentPayinCharge())
+                        .agentPayoutCharge(slab.getAgentPayoutCharge())
+                        .build())
+                .toList();
+    }
+
+    private List<String> mapIpAddresses(AppUser user) {
+        return userIpRepository.findByUser(user)
+                .stream()
+                .map(ip -> ip.getIpAddress() != null ? ip.getIpAddress().getHostAddress() : null)
+                .filter(ip -> ip != null)
+                .toList();
     }
 }
