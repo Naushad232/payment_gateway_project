@@ -17,6 +17,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
@@ -54,31 +55,62 @@ public class PayinController {
         // Save raw response first (similar to saveIdfcResponse in your other service)
         payinService.saveIdfcResponse(payload);
 
+        // Handle different key casings coming from IDFC
+        String orgTxnRefId = getString(payload, "OrgTxnRefId", "orgTxnRefId");
+        String orgCustRefId = getString(payload, "OrgCustRefId", "orgCustRefId");
+        String resDesc = getString(payload, "ResDesc", "resDesc");
+        String resCode = getString(payload, "ResCode", "resCode");
+        String amountStr = getString(payload, "Amount", "amount");
+        String payerVirAddr = getString(payload, "PayerVirAddr", "payerVirAddr");
+        String payerMobile = getString(payload, "PayerMobileNumber", "payerMobileNumber");
+        String timeStamp = getString(payload, "TimeStamp", "timeStamp");
+        String hmac = getString(payload, "HMAC", "hmac");
+
+        BigDecimal amount = BigDecimal.ZERO;
+        if (amountStr != null) {
+            amount = new BigDecimal(amountStr);
+        }
+
+        boolean success = "APPROVED".equalsIgnoreCase(resDesc)
+                || "SUCCESS".equalsIgnoreCase(resDesc)
+                || "200".equals(resCode);
+
         // Extract and transform the callback data
         PayinCallbackDto callbackDto = PayinCallbackDto.builder()
                 .bank("IDFC")
-                .orderId((String) payload.get("OrgTxnRefId"))
-                .txnId((String) payload.get("OrgTxnRefId"))
-                .amount(new BigDecimal(payload.get("Amount").toString()))
-                .status("Approved".equals(payload.get("ResDesc")))
-                .rrn((String) payload.get("OrgCustRefId"))
-                .payerName((String) payload.get("PayerMobileNumber"))
-                .payerUpi((String) payload.get("PayerVirAddr"))
-                .utr((String) payload.get("OrgCustRefId"))
+                .orderId(orgTxnRefId)
+                .txnId(orgTxnRefId)
+                .amount(amount)
+                .status(success)
+                .rrn(orgCustRefId)
+                .payerName(payerMobile)
+                .payerUpi(payerVirAddr)
+                .utr(orgCustRefId)
                 .build();
 
         // Process through the master webhook handler
         Map<String, Object> response = payinService.bankWebhookMaster(callbackDto);
 
         // Return response in the format IDFC expects
-        return ResponseEntity.ok(Map.of(
-                "OperationName", "MerchantStatusUpdateResponse",
-                "TxnId", payload.get("OrgTxnRefId"),
-                "ResCode", payload.get("ResCode"),
-                "ResDesc", payload.get("ResDesc"),
-                "TimeStamp", payload.get("TimeStamp"),
-                "HMAC", payload.get("HMAC")
-        ));
+        Map<String, Object> responseBody = new HashMap<>();
+        responseBody.put("OperationName", "MerchantStatusUpdateResponse");
+        responseBody.put("TxnId", orgTxnRefId);
+        responseBody.put("ResCode", resCode);
+        responseBody.put("ResDesc", resDesc);
+        responseBody.put("TimeStamp", timeStamp);
+        responseBody.put("HMAC", hmac);
+
+        return ResponseEntity.ok(responseBody);
+    }
+
+    private String getString(Map<String, Object> payload, String... keys) {
+        for (String key : keys) {
+            Object value = payload.get(key);
+            if (value != null) {
+                return value.toString();
+            }
+        }
+        return null;
     }
 
 //    @Operation(summary = "Check payin transaction status", description = "Check status of a payin transaction")
