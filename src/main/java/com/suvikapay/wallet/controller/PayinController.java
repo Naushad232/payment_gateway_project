@@ -45,55 +45,56 @@ public class PayinController {
     }
 
     // src/main/java/com/suvikapay/wallet/controller/PayinController.java
-
-    @Operation(summary = "IDFC payin callback", description = "Webhook for IDFC payin callbacks")
+    @Operation(
+            summary = "IDFC payin callback",
+            description = "Webhook for IDFC payin callbacks"
+    )
     @PostMapping("/idfc-callback")
-    public ResponseEntity<Map<String, Object>> idfcPayinCallback(@RequestBody Map<String, Object> payload) {
+    public ResponseEntity<Map<String, Object>> idfcPayinCallback(
+            @RequestBody IdfcCallbackRequest payload
+    ) {
+
         log.info("IDFC callback received: {}", payload);
 
-        // Save raw response first (similar to saveIdfcResponse in your other service)
         payinService.saveIdfcResponse(payload);
 
-        // Extract and transform the callback data
         PayinCallbackDto callbackDto = PayinCallbackDto.builder()
                 .bank("IDFC")
-                .orderId((String) payload.get("OrgTxnRefId"))
-                .txnId((String) payload.get("OrgTxnRefId"))
-                .amount(new BigDecimal(payload.get("Amount").toString()))
-                .status("Approved".equals(payload.get("ResDesc")))
-                .rrn((String) payload.get("OrgCustRefId"))
-                .payerName((String) payload.get("PayerMobileNumber"))
-                .payerUpi((String) payload.get("PayerVirAddr"))
-                .utr((String) payload.get("OrgCustRefId"))
+                .orderId(payload.getOrgTxnRefId())
+                .txnId(payload.getOrgTxnRefId())
+                .amount(new BigDecimal(payload.getAmount()))
+                .status("Approved".equals(payload.getResDesc()))
+                .rrn(payload.getOrgCustRefId())
+                .payerName(payload.getPayerMobileNumber())
+                .payerUpi(payload.getPayerVirAddr())
+                .utr(payload.getOrgCustRefId())
                 .build();
 
-        // Process through the master webhook handler
-        Map<String, Object> response = payinService.bankWebhookMaster(callbackDto);
+        payinService.bankWebhookMaster(callbackDto);
 
-        // Return response in the format IDFC expects
         return ResponseEntity.ok(Map.of(
                 "OperationName", "MerchantStatusUpdateResponse",
-                "TxnId", payload.get("OrgTxnRefId"),
-                "ResCode", payload.get("ResCode"),
-                "ResDesc", payload.get("ResDesc"),
-                "TimeStamp", payload.get("TimeStamp"),
-                "HMAC", payload.get("HMAC")
+                "TxnId", payload.getOrgTxnRefId(),
+                "ResCode", payload.getResCode(),
+                "ResDesc", payload.getResDesc(),
+                "TimeStamp", payload.getTimeStamp(),
+                "HMAC", payload.getHMAC()
         ));
     }
 
-//    @Operation(summary = "Check payin transaction status", description = "Check status of a payin transaction")
-//    @PostMapping("/check-status")
-//    @PreAuthorize("isAuthenticated()")
-//    public ResponseEntity<ApiResponse<PayinStatusResponseDto>> checkPayinStatus(
-//            @Valid @RequestBody PayinStatusRequestDto requestDto,
-//            HttpServletRequest request) {
-//
-//        log.info("Check payin status request: {}", requestDto);
-//        Integer userId = authUtil.getCurrentUserId();
-//
-//        PayinStatusResponseDto response = payinService.checkPayinStatus(requestDto, userId);
-//        return ResponseEntity.ok(ApiResponse.success(response.getMessage(), response));
-//    }
+    @Operation(summary = "Check payin transaction status", description = "Check status of a payin transaction")
+    @PostMapping("/check-status")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<PayinStatusResponseDto>> checkPayinStatus(
+            @Valid @RequestBody PayinStatusRequestDto requestDto,
+            HttpServletRequest request) {
+
+        log.info("Check payin status request: {}", requestDto);
+        Integer userId = authUtil.getCurrentUserId();
+
+        PayinStatusResponseDto response = payinService.checkPayinStatus(requestDto, userId);
+        return ResponseEntity.ok(ApiResponse.success(response.getMessage(), response));
+    }
 //
 //    @Operation(summary = "Callback endpoint for payin transactions", description = "Webhook for payin callbacks")
 //    @PostMapping("/callback")

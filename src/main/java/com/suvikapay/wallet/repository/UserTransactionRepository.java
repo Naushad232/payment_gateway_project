@@ -3,6 +3,8 @@ package com.suvikapay.wallet.repository;
 
 import com.suvikapay.wallet.entity.UserTransaction;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.OffsetDateTime;
@@ -21,4 +23,11 @@ public interface UserTransactionRepository extends JpaRepository<UserTransaction
     List<UserTransaction> findByUserIdAndCreatedAtBetween(Integer userId, OffsetDateTime start, OffsetDateTime end);
 
     List<UserTransaction> findByUserIdAndType(Integer userId, String type);
+
+
+
+
+    @Query("SELECT u FROM UserTransaction u WHERE u.userId = :userId AND u.orderId = :orderId")
+    Optional<UserTransaction> findByUserIdAndOrderId(@Param("userId") Integer userId,
+                                                     @Param("orderId") String orderId);
 }

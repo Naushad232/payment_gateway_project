@@ -472,10 +472,11 @@ public class PayinServiceImpl implements PayinService {
 // src/main/java/com/suvikapay/wallet/service/payin/impl/PayinServiceImpl.java
 
     @Override
-    public Map<String, Object> saveIdfcResponse(Map<String, Object> payload) {
+    public Map<String, Object> saveIdfcResponse(IdfcCallbackRequest payload) {
         try {
+
             ApiLog apiLog = ApiLog.builder()
-                    .txnId("")
+                    .txnId(payload.getOrgTxnRefId())
                     .userId(0)
                     .txnType("PAYIN")
                     .request("")
@@ -493,6 +494,7 @@ public class PayinServiceImpl implements PayinService {
                     "error", false,
                     "message", "callback received saved"
             );
+
         } catch (JsonProcessingException e) {
             log.error("Error saving IDFC callback", e);
             return Map.of(
@@ -905,6 +907,208 @@ public class PayinServiceImpl implements PayinService {
                     .build();
             apiLogRepository.save(errorLog);
         }
+    }
+
+
+
+    // src/main/java/com/suvikapay/wallet/service/payin/impl/PayinServiceImpl.java
+
+    @Override
+    @Transactional(readOnly = true)
+    public PayinStatusResponseDto checkPayinStatus(PayinStatusRequestDto request, Integer userId) {
+        try {
+            log.info("Checking payin status for orderId: {}, userId: {}", request.getOrderId(), userId);
+
+            // Find transaction by orderId
+            Optional<PayinTransaction> payinTxnOpt = payinTransactionRepository.findByOrderId(request.getOrderId());
+
+            if (payinTxnOpt.isEmpty()) {
+                log.warn("Transaction not found for orderId: {}", request.getOrderId());
+
+                // Also check in user_transactions as fallback
+                Optional<UserTransaction> userTxnOpt = userTransactionRepository.findByOrderId(request.getOrderId());
+
+                if (userTxnOpt.isEmpty()) {
+                    return PayinStatusResponseDto.builder()
+                            .status(false)
+                            .error(true)
+                            .message("Transaction not found")
+                            .responseCode(404)
+                            .orderId(request.getOrderId())
+                            .transactionStatus("NOT_FOUND")
+                            .build();
+                }
+
+                // If found in user_transactions, return that status
+                UserTransaction userTxn = userTxnOpt.get();
+                return buildStatusResponseFromUserTxn(userTxn);
+            }
+
+            PayinTransaction payinTxn = payinTxnOpt.get();
+
+            // Verify that the transaction belongs to the requesting user (unless admin)
+            if (!payinTxn.getUserId().equals(userId)) {
+                // Check if user is admin (you might want to add role check here)
+                log.warn("User {} attempted to access transaction belonging to user {}",
+                        userId, payinTxn.getUserId());
+
+                return PayinStatusResponseDto.builder()
+                        .status(false)
+                        .error(true)
+                        .message("Unauthorized to view this transaction")
+                        .responseCode(403)
+                        .orderId(request.getOrderId())
+                        .transactionStatus("UNAUTHORIZED")
+                        .build();
+            }
+
+            // Build response from payin transaction
+            PayinStatusResponseDto response = buildStatusResponseFromPayinTxn(payinTxn);
+
+            // If transaction is still pending, we might want to check with the bank
+            if ("PENDING".equalsIgnoreCase(payinTxn.getStatus())) {
+                // Optionally check with bank API for real-time status
+                // This depends on your bank integration
+                response.setMessage("Transaction is still processing");
+            } else if ("SUCCESS".equalsIgnoreCase(payinTxn.getStatus())) {
+                response.setMessage("Transaction completed successfully");
+            } else if ("FAILED".equalsIgnoreCase(payinTxn.getStatus())) {
+                response.setMessage("Transaction failed");
+            }
+
+            // Log the status check
+            saveStatusCheckLog(userId, request.getOrderId(), payinTxn.getStatus());
+
+            return response;
+
+        } catch (Exception e) {
+            log.error("Error checking payin status for orderId: {}", request.getOrderId(), e);
+
+            return PayinStatusResponseDto.builder()
+                    .status(false)
+                    .error(true)
+                    .message("Error checking transaction status: " + e.getMessage())
+                    .responseCode(500)
+                    .orderId(request.getOrderId())
+                    .transactionStatus("ERROR")
+                    .build();
+        }
+    }
+
+    private PayinStatusResponseDto buildStatusResponseFromPayinTxn(PayinTransaction payinTxn) {
+        return PayinStatusResponseDto.builder()
+                .status(true)
+                .error(false)
+                .message("Transaction found")
+                .responseCode(200)
+                .orderId(payinTxn.getOrderId())
+                .txnId(payinTxn.getTxnId())
+                .bank(payinTxn.getApi())
+                .amount(payinTxn.getAmount())
+                .transactionStatus(payinTxn.getStatus())
+                .utr(payinTxn.getUtr())
+                .payerName(payinTxn.getPayerName())
+                .payerUpi(payinTxn.getPayerUpi())
+                .transactionDate(payinTxn.getCreatedAt())
+                .charge(payinTxn.getCharge())
+                .gst(payinTxn.getGst())
+                .totalAmount(payinTxn.getTotalAmount())
+                .merchantName(payinTxn.getMerchant() != null ?
+                        payinTxn.getMerchant().getMerchantName() : null)
+                .build();
+    }
+
+    private PayinStatusResponseDto buildStatusResponseFromUserTxn(UserTransaction userTxn) {
+        return PayinStatusResponseDto.builder()
+                .status(true)
+                .error(false)
+                .message("Transaction found")
+                .responseCode(200)
+                .orderId(userTxn.getOrderId())
+                .txnId(userTxn.getTxnId())
+                .amount(userTxn.getPayerAmount())
+                .transactionStatus(userTxn.getStatus())
+                .transactionDate(userTxn.getCreatedAt())
+                .charge(userTxn.getMerchantCharge())   // mapped from merchantCharge
+                .gst(userTxn.getMerchantGst())
+                .totalAmount(userTxn.getAmount())
+                .build();
+    }
+
+    private void saveStatusCheckLog(Integer userId, String orderId, String status) {
+        try {
+            ApiLog apiLog = ApiLog.builder()
+                    .userId(userId)
+                    .txnId(orderId)
+                    .txnType("PAYIN")
+                    .service("STATUS_CHECK")
+                    .serviceApi("PAYIN-STATUS")
+                    .request("Status check for order: " + orderId)
+                    .response("Status: " + status)
+                    .createdAt(OffsetDateTime.now())
+                    .updatedAt(OffsetDateTime.now())
+                    .build();
+
+            apiLogRepository.save(apiLog);
+        } catch (Exception e) {
+            log.error("Error saving status check log", e);
+        }
+    }
+
+    // Optional: Method to check status with specific bank APIs
+    private PayinStatusResponseDto checkWithBankAPI(String bank, String orderId) {
+        try {
+            switch (bank.toUpperCase()) {
+                case "AIRPAY":
+                    return checkAirpayStatus(orderId);
+                case "ROYALE":
+                    return checkRoyaleStatus(orderId);
+                case "FINO":
+                    return checkFinoStatus(orderId);
+                case "VIMO":
+                    return checkVimoStatus(orderId);
+                case "IDFC":
+                    return checkIdfcStatus(orderId);
+                case "DIGI":
+                    return checkDigiStatus(orderId);
+                default:
+                    return null;
+            }
+        } catch (Exception e) {
+            log.error("Error checking status with bank API for orderId: {}", orderId, e);
+            return null;
+        }
+    }
+
+    // Bank-specific status check methods (implement based on your bank integrations)
+    private PayinStatusResponseDto checkAirpayStatus(String orderId) {
+        // Implement Airpay status check
+        return null;
+    }
+
+    private PayinStatusResponseDto checkRoyaleStatus(String orderId) {
+        // Implement Royale status check
+        return null;
+    }
+
+    private PayinStatusResponseDto checkFinoStatus(String orderId) {
+        // Implement Fino status check
+        return null;
+    }
+
+    private PayinStatusResponseDto checkVimoStatus(String orderId) {
+        // Implement Vimo status check
+        return null;
+    }
+
+    private PayinStatusResponseDto checkIdfcStatus(String orderId) {
+        // Implement IDFC status check
+        return null;
+    }
+
+    private PayinStatusResponseDto checkDigiStatus(String orderId) {
+        // Implement Digi status check
+        return null;
     }
 //    private PayinResponseDto idfcPayin(AppUser user, String txnId, CreatePaymentLinkDto request) {
 //        try {

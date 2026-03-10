@@ -10,11 +10,10 @@ public interface PayinService {
 
     PayinResponseDto generatePaymentLink(CreatePaymentLinkDto request, Integer userId, String appName);
 
-    Map<String, Object> saveIdfcResponse(Map<String, Object> payload);
-
+    Map<String, Object> saveIdfcResponse(IdfcCallbackRequest payload);
     Map<String, Object> bankWebhookMaster(PayinCallbackDto callbackDto);
 
-//    PayinStatusResponseDto checkPayinStatus(PayinStatusRequestDto request, Integer userId);
+    PayinStatusResponseDto checkPayinStatus(PayinStatusRequestDto request, Integer userId);
 
 //    PayinCallbackDto processPayinCallback(Map<String, Object> payload);
 
